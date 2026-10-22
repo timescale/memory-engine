@@ -457,11 +457,37 @@ describe("checkLocalOrigin", () => {
           Origin: "http://attacker.example",
         }),
       ).toBe(false);
+      // The Origin must name the same listener the request was addressed to,
+      // not merely some IP.
+      expect(
+        admitted(bound, {
+          Host: "192.168.1.5:3000",
+          Origin: "http://203.0.113.5:3000",
+        }),
+      ).toBe(false);
+      expect(
+        admitted(bound, {
+          Host: "127.0.0.1:3000",
+          Origin: "http://localhost:3000",
+        }),
+      ).toBe(true);
     }
   });
 
   test("a named bind accepts only that host", () => {
     expect(admitted("10.0.0.7", { Host: "10.0.0.7:3000" })).toBe(true);
     expect(admitted("10.0.0.7", { Host: "127.0.0.1:3000" })).toBe(false);
+  });
+
+  test("a concrete IPv6 bind matches its bracketed Host and Origin", () => {
+    expect(admitted("fd00::7", { Host: "[fd00::7]:3000" })).toBe(true);
+    expect(
+      admitted("fd00::7", {
+        Host: "[fd00::7]:3000",
+        Origin: "http://[fd00::7]:3000",
+      }),
+    ).toBe(true);
+    expect(admitted("fd00::7", { Host: "[fd00::8]:3000" })).toBe(false);
+    expect(admitted("::1", { Host: "[::1]:3000" })).toBe(true);
   });
 });

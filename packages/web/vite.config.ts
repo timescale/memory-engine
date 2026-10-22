@@ -51,6 +51,9 @@ export default defineConfig({
       "/rpc": {
         target: rpcTarget,
         changeOrigin: true,
+        // `me serve` only proxies RPC calls whose Origin is its own; present
+        // the dev server's requests as coming from the backend it targets.
+        headers: { Origin: new URL(rpcTarget).origin },
       },
       "/healthz": {
         target: rpcTarget,
@@ -61,6 +64,9 @@ export default defineConfig({
       "/api/v1/user/rpc": {
         target: rpcTarget,
         changeOrigin: true,
+        // `me serve` only proxies RPC calls whose Origin is its own; present
+        // the dev server's requests as coming from the backend it targets.
+        headers: { Origin: new URL(rpcTarget).origin },
       },
       "/api/serve-context": {
         target: rpcTarget,

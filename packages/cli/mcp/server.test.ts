@@ -8,6 +8,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { parse as yamlParse } from "yaml";
 import {
   createMcpServer,
+  localPath,
   type McpServerOptions,
   type McpSpaceMode,
 } from "./server.ts";
@@ -837,5 +838,17 @@ test("export and import keep file paths inside the working directory", async () 
     await Promise.all([client.close(), server.close()]);
     await rm(root, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("localPath treats the filesystem root as a valid working directory", async () => {
+  // `/` + separator must not become `//`, which would reject every child.
+  const dir = await realpath(await mkdtemp(join(tmpdir(), "me-mcp-root-")));
+  try {
+    const file = join(dir, "memories.json");
+    expect(localPath("/", file)).toBe(file);
+    expect(() => localPath("/", "/.hidden")).toThrow("dotfile");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });

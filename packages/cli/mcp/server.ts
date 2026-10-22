@@ -128,7 +128,8 @@ export function localPath(root: string, raw: string): string {
     probe = parent;
   }
   const real = join(realpathSync(probe), ...tail);
-  if (real !== rootReal && !real.startsWith(rootReal + sep)) {
+  const rootPrefix = rootReal.endsWith(sep) ? rootReal : rootReal + sep;
+  if (real !== rootReal && !real.startsWith(rootPrefix)) {
     throw new Error(
       `path must stay inside the working directory (${rootReal}): ${raw}`,
     );

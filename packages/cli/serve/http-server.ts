@@ -169,8 +169,8 @@ function forbidden(reason: string): Response {
   return new Response(`Forbidden: ${reason}`, { status: 403 });
 }
 
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
-const WILDCARD_HOSTS = new Set(["0.0.0.0", "::", "[::]"]);
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+const WILDCARD_HOSTS = new Set(["0.0.0.0", "::"]);
 
 /**
  * Whether `hostname` (as a `Host` header or `Origin` names it) may address a
@@ -183,14 +183,26 @@ const WILDCARD_HOSTS = new Set(["0.0.0.0", "::", "[::]"]);
  * - Any other bind accepts exactly that host.
  */
 function hostnameAllowed(boundHost: string, hostname: string): boolean {
-  const bound = boundHost.toLowerCase();
-  const name = hostname.toLowerCase();
+  const bound = canonicalHostname(boundHost);
+  const name = canonicalHostname(hostname);
   if (name === bound) return true;
   if (LOOPBACK_HOSTS.has(bound)) return LOOPBACK_HOSTS.has(name);
   if (WILDCARD_HOSTS.has(bound)) {
-    return LOOPBACK_HOSTS.has(name) || isIP(name.replace(/^\[|\]$/g, "")) !== 0;
+    return LOOPBACK_HOSTS.has(name) || isIP(name) !== 0;
   }
   return false;
+}
+
+/** Lowercase, and an IPv6 literal without its URL brackets (`[::1]` → `::1`). */
+function canonicalHostname(hostname: string): string {
+  return hostname.toLowerCase().replace(/^\[|\]$/g, "");
+}
+
+/** Two hostnames name the same listener: equal, or both loopback aliases. */
+function sameHostname(a: string, b: string): boolean {
+  const x = canonicalHostname(a);
+  const y = canonicalHostname(b);
+  return x === y || (LOOPBACK_HOSTS.has(x) && LOOPBACK_HOSTS.has(y));
 }
 
 /**
@@ -202,8 +214,8 @@ function hostnameAllowed(boundHost: string, hostname: string): boolean {
  *   interchangeable) on the bound port. A request whose Host names some other
  *   site that happens to resolve to loopback is refused.
  * - With `sameOrigin` (the RPC proxy routes): `Origin`, when present, must be
- *   `http://<a bound hostname>:<port>`, and `Sec-Fetch-Site`, when present,
- *   must be `same-origin` or `none`. Non-browser clients send neither header
+ *   `http://<Host>` (loopback aliases are interchangeable), and
+ *   `Sec-Fetch-Site`, when present, must be `same-origin` or `none`. Non-browser clients send neither header
  *   and pass. The UI's own navigations (a link from elsewhere, a bookmark) are
  *   GETs on the asset routes, which only take the Host check.
  *
@@ -247,7 +259,7 @@ export function checkLocalOrigin(
         : Number(parsed.port);
     if (
       parsed.protocol !== "http:" ||
-      !hostnameAllowed(boundHost, parsed.hostname) ||
+      !sameHostname(parsed.hostname, hostname) ||
       originPort !== boundPort
     ) {
       return forbidden("cross-origin request");
