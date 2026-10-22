@@ -65,7 +65,8 @@ The UI talks to whichever space is active for the current server — same resolu
 ## Security notes
 
 - The server binds to `127.0.0.1` only — no LAN exposure. The browser never sees your session token; `me serve` injects it into RPC calls on the way out.
-- No authentication is required on the local server. Do not `--host 0.0.0.0` or tunnel the port unless you understand the implications.
+- Requests must be addressed to the server by its own name (`127.0.0.1`, `localhost`, or the `--host` value, on the bound port) — a page on another hostname that happens to resolve to your machine is refused. RPC calls from a browser must come from the UI's own origin and carry a JSON body; other pages open in your browser cannot drive the proxy.
+- No authentication is required on the local server beyond those checks. Do not `--host 0.0.0.0` or tunnel the port unless you understand the implications; `me serve` prints a warning when the host is not a loopback address.
 
 ## Examples
 

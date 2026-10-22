@@ -164,6 +164,119 @@ describe("startHttpServer", () => {
     );
   });
 
+  test("/rpc refuses a request whose Host names another site", async () => {
+    const res = await fetch(`${running.url}/rpc`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Host: "attacker.example",
+      },
+      body: "{}",
+    });
+    expect(res.status).toBe(403);
+    expect(mock.lastRequest).toBeNull();
+  });
+
+  test("asset routes also require a matching Host", async () => {
+    const res = await fetch(`${running.url}/`, {
+      headers: { Host: `127.0.0.1:${running.server.port! + 1}` },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  test("/rpc accepts a same-origin browser request", async () => {
+    const res = await fetch(`${running.url}/rpc`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: running.url,
+        "Sec-Fetch-Site": "same-origin",
+      },
+      body: "{}",
+    });
+    expect(res.status).toBe(200);
+    expect(mock.lastRequest?.path).toBe(MEMORY_RPC_PATH);
+  });
+
+  test("/rpc accepts a loopback alias as the browser origin", async () => {
+    const res = await fetch(`${running.url}/rpc`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: `http://localhost:${running.server.port}`,
+      },
+      body: "{}",
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test("/rpc refuses a cross-origin browser request", async () => {
+    const res = await fetch(`${running.url}/rpc`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://attacker.example",
+      },
+      body: "{}",
+    });
+    expect(res.status).toBe(403);
+    expect(mock.lastRequest).toBeNull();
+  });
+
+  test("/rpc refuses a cross-site fetch without an Origin", async () => {
+    const res = await fetch(`${running.url}/rpc`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Sec-Fetch-Site": "cross-site",
+      },
+      body: "{}",
+    });
+    expect(res.status).toBe(403);
+    expect(mock.lastRequest).toBeNull();
+  });
+
+  test("/rpc refuses a non-JSON body", async () => {
+    const res = await fetch(`${running.url}/rpc`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: "{}",
+    });
+    expect(res.status).toBe(415);
+    expect(mock.lastRequest).toBeNull();
+  });
+
+  test("/rpc does not answer CORS preflights", async () => {
+    const res = await fetch(`${running.url}/rpc`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "https://attacker.example",
+        "Access-Control-Request-Method": "POST",
+      },
+    });
+    expect(res.status).toBe(405);
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
+  test("/api/v1/user/rpc applies the same origin and body checks", async () => {
+    const crossOrigin = await fetch(`${running.url}${USER_RPC_PATH}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: "https://attacker.example",
+      },
+      body: "{}",
+    });
+    expect(crossOrigin.status).toBe(403);
+    const plain = await fetch(`${running.url}${USER_RPC_PATH}`, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: "{}",
+    });
+    expect(plain.status).toBe(415);
+    expect(mock.lastRequest).toBeNull();
+  });
+
   test("serve-context returns the bound space", async () => {
     const res = await fetch(`${running.url}${SERVE_CONTEXT_PATH}`);
     expect(res.status).toBe(200);

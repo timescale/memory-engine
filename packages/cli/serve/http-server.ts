@@ -17,6 +17,14 @@
  * The proxy is intentionally transparent — it forwards request bodies
  * byte-for-byte and streams responses back, so any `memory.*` (and management)
  * RPC methods work without backend changes here.
+ *
+ * The proxy injects the user's credential, so it only answers requests that
+ * come from its own origin: the `Host` header must name the bound listener (a
+ * page on another hostname that resolves to loopback is refused), a browser
+ * `Origin` / `Sec-Fetch-Site` must be same-origin, and RPC bodies must be
+ * `application/json` (so a cross-origin page cannot send one as a "simple"
+ * request). Non-browser clients (curl, the CLI itself) send none of those
+ * headers and are admitted on the Host check alone.
  */
 import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import type { BearerSource } from "../session.ts";
@@ -68,12 +76,19 @@ export function startHttpServer(options: ServeOptions): RunningServer {
     port: options.port,
     development: false,
 
-    fetch(req) {
+    fetch(req, srv) {
       const url = new URL(req.url);
 
       if (req.method === "GET" && url.pathname === "/healthz") {
         return Response.json({ ok: true });
       }
+
+      // Every route: the request must be addressed to this listener by name.
+      const boundPort = srv.port ?? options.port;
+      const denied = checkLocalOrigin(req, options.host, boundPort, {
+        sameOrigin: false,
+      });
+      if (denied) return denied;
 
       // The bound space, so the web UI's account cluster can display + default
       // to it in local mode (the browser otherwise can't know it).
@@ -87,6 +102,11 @@ export function startHttpServer(options: ServeOptions): RunningServer {
       // space.
       if (url.pathname === "/rpc") {
         if (req.method !== "POST") return methodNotAllowed("POST");
+        const crossOrigin = checkLocalOrigin(req, options.host, boundPort, {
+          sameOrigin: true,
+        });
+        if (crossOrigin) return crossOrigin;
+        if (!isJsonBody(req)) return unsupportedMediaType();
         const space = req.headers.get(SPACE_HEADER) || options.space;
         return proxyJsonRpc(req, options, MEMORY_RPC_PATH, space);
       }
@@ -94,6 +114,11 @@ export function startHttpServer(options: ServeOptions): RunningServer {
       // User RPC (whoami / space discovery) — session-scoped, no space header.
       if (url.pathname === USER_RPC_PATH) {
         if (req.method !== "POST") return methodNotAllowed("POST");
+        const crossOrigin = checkLocalOrigin(req, options.host, boundPort, {
+          sameOrigin: true,
+        });
+        if (crossOrigin) return crossOrigin;
+        if (!isJsonBody(req)) return unsupportedMediaType();
         return proxyJsonRpc(req, options, USER_RPC_PATH);
       }
 
@@ -131,6 +156,102 @@ function methodNotAllowed(allow: string): Response {
     status: 405,
     headers: { Allow: allow },
   });
+}
+
+function unsupportedMediaType(): Response {
+  return new Response("Unsupported Media Type: expected application/json", {
+    status: 415,
+  });
+}
+
+function forbidden(reason: string): Response {
+  return new Response(`Forbidden: ${reason}`, { status: 403 });
+}
+
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+
+/** Hostnames the `Host` header may carry for a listener bound to `boundHost`. */
+function allowedHostnames(boundHost: string): Set<string> {
+  const allowed = new Set([boundHost.toLowerCase()]);
+  if (LOOPBACK_HOSTS.has(boundHost.toLowerCase())) {
+    for (const h of LOOPBACK_HOSTS) allowed.add(h);
+  }
+  return allowed;
+}
+
+/**
+ * Admit a request only when it is addressed to this listener by name and,
+ * with `sameOrigin`, only when a browser sent it from this listener's own
+ * origin.
+ *
+ * - `Host` must be one of the bound hostnames (loopback aliases are
+ *   interchangeable) on the bound port. A request whose Host names some other
+ *   site that happens to resolve to loopback is refused.
+ * - With `sameOrigin` (the RPC proxy routes): `Origin`, when present, must be
+ *   `http://<a bound hostname>:<port>`, and `Sec-Fetch-Site`, when present,
+ *   must be `same-origin` or `none`. Non-browser clients send neither header
+ *   and pass. The UI's own navigations (a link from elsewhere, a bookmark) are
+ *   GETs on the asset routes, which only take the Host check.
+ *
+ * Returns `null` when the request is admitted, else the 403 to send.
+ */
+export function checkLocalOrigin(
+  req: Request,
+  boundHost: string,
+  boundPort: number,
+  { sameOrigin }: { sameOrigin: boolean },
+): Response | null {
+  const hostHeader = req.headers.get("Host");
+  if (!hostHeader) return forbidden("missing Host header");
+  let host: URL;
+  try {
+    host = new URL(`http://${hostHeader}`);
+  } catch {
+    return forbidden("malformed Host header");
+  }
+  const hostname = host.hostname.toLowerCase();
+  const port = host.port === "" ? 80 : Number(host.port);
+  if (!allowedHostnames(boundHost).has(hostname) || port !== boundPort) {
+    return forbidden("request is not addressed to this server");
+  }
+
+  if (!sameOrigin) return null;
+
+  const origin = req.headers.get("Origin");
+  if (origin !== null) {
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      return forbidden("malformed Origin header");
+    }
+    const originPort =
+      parsed.port === ""
+        ? parsed.protocol === "https:"
+          ? 443
+          : 80
+        : Number(parsed.port);
+    if (
+      parsed.protocol !== "http:" ||
+      !allowedHostnames(boundHost).has(parsed.hostname.toLowerCase()) ||
+      originPort !== boundPort
+    ) {
+      return forbidden("cross-origin request");
+    }
+  }
+
+  const site = req.headers.get("Sec-Fetch-Site");
+  if (site !== null && site !== "same-origin" && site !== "none") {
+    return forbidden("cross-site request");
+  }
+
+  return null;
+}
+
+/** RPC bodies must be JSON — a cross-origin page cannot send that without a preflight. */
+function isJsonBody(req: Request): boolean {
+  const type = req.headers.get("Content-Type") ?? "";
+  return /^application\/json\b/i.test(type.trim());
 }
 
 /**

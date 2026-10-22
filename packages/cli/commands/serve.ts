@@ -46,6 +46,11 @@ export function createServeCommand(): Command {
       requireSpace(creds, fmt);
 
       const host: string = opts.host ?? DEFAULT_HOST;
+      if (!isLoopbackHost(host) && fmt === "text") {
+        clack.log.warn(
+          `Binding to ${host}: anything that can reach this address can use your credential through the proxy.`,
+        );
+      }
       const explicitPortFlag = opts.port !== undefined;
       const requestedPort = explicitPortFlag
         ? parsePort(opts.port, fmt)
@@ -138,6 +143,11 @@ export function createServeCommand(): Command {
         process.once("SIGTERM", shutdown);
       });
     });
+}
+
+function isLoopbackHost(host: string): boolean {
+  const h = host.toLowerCase();
+  return h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
 }
 
 /**
