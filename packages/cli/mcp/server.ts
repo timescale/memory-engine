@@ -7,6 +7,7 @@
 
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   realpathSync,
   statSync,
@@ -103,10 +104,24 @@ type McpRuntimeContext = McpSpaceSelection & {
 export function localPath(root: string, raw: string): string {
   const rootReal = realpathSync(root);
   const target = resolve(rootReal, raw);
-  // realpath the deepest existing ancestor, then re-append the missing tail.
+  // realpath the deepest existing entry, then re-append the missing tail. An
+  // entry is "existing" by lstat, so a dangling symlink is seen as what it is
+  // (and refused) rather than as a free filename to create through.
   let probe = target;
   const tail: string[] = [];
-  while (!existsSync(probe)) {
+  for (;;) {
+    let entry: ReturnType<typeof lstatSync> | undefined;
+    try {
+      entry = lstatSync(probe);
+    } catch {
+      entry = undefined;
+    }
+    if (entry) {
+      if (entry.isSymbolicLink() && !existsSync(probe)) {
+        throw new Error(`path goes through a dangling symlink: ${raw}`);
+      }
+      break;
+    }
     tail.unshift(basename(probe));
     const parent = dirname(probe);
     if (parent === probe) break;
@@ -1631,7 +1646,13 @@ Docs: ${docUrl("me_memory_export")}`,
               typeof mem.name === "string" && mem.name
                 ? mem.name
                 : String(mem.id);
-            const dir = treeDir ? join(resolved, treeDir) : resolved;
+            // Generated tree directories and filenames get the same
+            // confinement as `path` itself (a pre-existing symlink under the
+            // export directory must not redirect them).
+            const dir = localPath(
+              runtime.fsRoot,
+              treeDir ? join(resolved, treeDir) : resolved,
+            );
             mkdirSync(dir, { recursive: true });
             const fname = uniqueExportFilename(
               dir,
@@ -1640,7 +1661,7 @@ Docs: ${docUrl("me_memory_export")}`,
               usedByDir,
             );
             writeLocalFile(
-              join(dir, fname),
+              localPath(runtime.fsRoot, join(dir, fname)),
               formatMemoryAsMarkdown(mem),
               overwrite,
             );

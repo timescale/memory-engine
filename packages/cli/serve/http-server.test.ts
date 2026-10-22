@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import {
+  checkLocalOrigin,
   findAvailablePort,
   MEMORY_RPC_PATH,
   type RunningServer,
@@ -417,5 +418,50 @@ describe("findAvailablePort", () => {
     const port = await findAvailablePort("127.0.0.1", 34300, 5);
     expect(port).toBeGreaterThanOrEqual(34300);
     expect(port).toBeLessThan(34305);
+  });
+});
+
+describe("checkLocalOrigin", () => {
+  const rpc = (headers: Record<string, string>) =>
+    new Request("http://ignored/rpc", { method: "POST", headers });
+  const admitted = (bound: string, headers: Record<string, string>) =>
+    checkLocalOrigin(rpc(headers), bound, 3000, { sameOrigin: true }) === null;
+
+  test("a loopback bind accepts every loopback alias on the bound port", () => {
+    expect(admitted("127.0.0.1", { Host: "localhost:3000" })).toBe(true);
+    expect(admitted("127.0.0.1", { Host: "[::1]:3000" })).toBe(true);
+    expect(admitted("127.0.0.1", { Host: "127.0.0.1:3001" })).toBe(false);
+    expect(admitted("127.0.0.1", { Host: "192.168.1.5:3000" })).toBe(false);
+    expect(admitted("127.0.0.1", { Host: "attacker.example:3000" })).toBe(
+      false,
+    );
+  });
+
+  test("a wildcard bind accepts concrete IP addresses but not DNS names", () => {
+    for (const bound of ["0.0.0.0", "::"]) {
+      expect(admitted(bound, { Host: "127.0.0.1:3000" })).toBe(true);
+      expect(admitted(bound, { Host: "localhost:3000" })).toBe(true);
+      expect(admitted(bound, { Host: "192.168.1.5:3000" })).toBe(true);
+      expect(admitted(bound, { Host: "[fe80::1]:3000" })).toBe(true);
+      expect(
+        admitted(bound, {
+          Host: "192.168.1.5:3000",
+          Origin: "http://192.168.1.5:3000",
+        }),
+      ).toBe(true);
+      expect(admitted(bound, { Host: "attacker.example:3000" })).toBe(false);
+      expect(admitted(bound, { Host: "192.168.1.5:3001" })).toBe(false);
+      expect(
+        admitted(bound, {
+          Host: "192.168.1.5:3000",
+          Origin: "http://attacker.example",
+        }),
+      ).toBe(false);
+    }
+  });
+
+  test("a named bind accepts only that host", () => {
+    expect(admitted("10.0.0.7", { Host: "10.0.0.7:3000" })).toBe(true);
+    expect(admitted("10.0.0.7", { Host: "127.0.0.1:3000" })).toBe(false);
   });
 });

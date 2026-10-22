@@ -26,6 +26,7 @@
  * request). Non-browser clients (curl, the CLI itself) send none of those
  * headers and are admitted on the Host check alone.
  */
+import { isIP } from "node:net";
 import { SPACE_HEADER } from "@memory.build/protocol/headers";
 import type { BearerSource } from "../session.ts";
 import { resolveAssetResponse } from "./web-assets.ts";
@@ -169,14 +170,27 @@ function forbidden(reason: string): Response {
 }
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+const WILDCARD_HOSTS = new Set(["0.0.0.0", "::", "[::]"]);
 
-/** Hostnames the `Host` header may carry for a listener bound to `boundHost`. */
-function allowedHostnames(boundHost: string): Set<string> {
-  const allowed = new Set([boundHost.toLowerCase()]);
-  if (LOOPBACK_HOSTS.has(boundHost.toLowerCase())) {
-    for (const h of LOOPBACK_HOSTS) allowed.add(h);
+/**
+ * Whether `hostname` (as a `Host` header or `Origin` names it) may address a
+ * listener bound to `boundHost`.
+ *
+ * - A loopback bind accepts every loopback alias.
+ * - A wildcard bind (`0.0.0.0` / `::`) is reached by whatever concrete
+ *   address the client used, so it accepts loopback aliases and any IP
+ *   literal — but never a DNS name, which is what a rebinding page would use.
+ * - Any other bind accepts exactly that host.
+ */
+function hostnameAllowed(boundHost: string, hostname: string): boolean {
+  const bound = boundHost.toLowerCase();
+  const name = hostname.toLowerCase();
+  if (name === bound) return true;
+  if (LOOPBACK_HOSTS.has(bound)) return LOOPBACK_HOSTS.has(name);
+  if (WILDCARD_HOSTS.has(bound)) {
+    return LOOPBACK_HOSTS.has(name) || isIP(name.replace(/^\[|\]$/g, "")) !== 0;
   }
-  return allowed;
+  return false;
 }
 
 /**
@@ -211,7 +225,7 @@ export function checkLocalOrigin(
   }
   const hostname = host.hostname.toLowerCase();
   const port = host.port === "" ? 80 : Number(host.port);
-  if (!allowedHostnames(boundHost).has(hostname) || port !== boundPort) {
+  if (!hostnameAllowed(boundHost, hostname) || port !== boundPort) {
     return forbidden("request is not addressed to this server");
   }
 
@@ -233,7 +247,7 @@ export function checkLocalOrigin(
         : Number(parsed.port);
     if (
       parsed.protocol !== "http:" ||
-      !allowedHostnames(boundHost).has(parsed.hostname.toLowerCase()) ||
+      !hostnameAllowed(boundHost, parsed.hostname) ||
       originPort !== boundPort
     ) {
       return forbidden("cross-origin request");

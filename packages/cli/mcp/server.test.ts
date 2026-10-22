@@ -798,6 +798,26 @@ test("export and import keep file paths inside the working directory", async () 
     expect(viaLink.isError).toBe(true);
     expect(existsSync(join(outside, "escape.json"))).toBe(false);
 
+    // A dangling symlink is not a free filename to create through, even with
+    // overwrite (which would otherwise follow it).
+    symlinkSync(join(outside, "dangling.json"), join(root, "dangling.json"));
+    const dangling = await exportTo("dangling.json", true);
+    expect(dangling.isError).toBe(true);
+    expect(toolText(dangling)).toContain("dangling symlink");
+    expect(existsSync(join(outside, "dangling.json"))).toBe(false);
+
+    // Markdown export: the generated tree directories and filenames are
+    // confined too, so a planted link under the export directory cannot
+    // redirect them (the memory lives in /share/design → <dir>/share/design/).
+    mkdirSync(join(root, "md"));
+    symlinkSync(outside, join(root, "md", "share"));
+    const mdViaLink = await client.callTool({
+      name: "me_memory_export",
+      arguments: { format: "md", path: "md" },
+    });
+    expect(mdViaLink.isError).toBe(true);
+    expect(existsSync(join(outside, "design"))).toBe(false);
+
     // Import: same confinement, plus only memory-file extensions are read.
     mkdirSync(join(outside, "secrets"));
     writeFileSync(join(outside, "secrets", "key.md"), "---\n---\nsecret");
