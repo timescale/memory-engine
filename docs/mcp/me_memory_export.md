@@ -15,7 +15,8 @@ Prefer `path` to write directly to a file instead of returning content through t
 | `temporal` | `object \| null` | no | Temporal filter. Omit or pass `null` to skip. |
 | `format` | `string` | yes | Output format: `"json"`, `"yaml"`, or `"md"`. |
 | `limit` | `integer \| null` | no | Maximum memories to export. Omit or pass `null` for default (200), maximum 200. |
-| `path` | `string \| null` | no | File or directory path. Relative paths resolve from the MCP server's working directory. For `md` format, use a directory path to write one `.md` file per memory. Omit or pass `null` to return content inline. |
+| `path` | `string \| null` | no | File or directory path inside the MCP server's working directory (relative paths resolve from there; paths that leave it, or that name a dotfile or dot-directory, are refused). For `md` format, use a directory path to write one `.md` file per memory. Omit or pass `null` to return content inline. |
+| `overwrite` | `boolean \| null` | no | Replace files that already exist at `path`. Default `false`: an existing file is left alone and the call fails. |
 
 ### temporal
 
@@ -52,8 +53,8 @@ For `md` format with a directory path:
 | Field | Type | Description |
 |-------|------|-------------|
 | `count` | `number` | Number of memories exported. |
-| `path` | `string` | The file path that was written to (JSON/YAML). |
-| `directory` | `string` | The directory that `.md` files were written to (Markdown). |
+| `path` | `string` | The absolute file path that was written to (JSON/YAML). |
+| `directory` | `string` | The absolute directory that `.md` files were written to (Markdown). |
 
 ### When `path` is omitted (inline output)
 
@@ -77,7 +78,7 @@ For `md` format with a directory path:
 {
   "tree": "/share/design/*",
   "format": "yaml",
-  "path": "/Users/me/memories/design-export.yaml"
+  "path": "memories/design-export.yaml"
 }
 ```
 
@@ -87,7 +88,7 @@ For `md` format with a directory path:
 {
   "tree": "/share/design/*",
   "format": "md",
-  "path": "/Users/me/memories/design-export"
+  "path": "memories/design-export"
 }
 ```
 
@@ -106,6 +107,7 @@ The directory mirrors the tree: each memory is written to `<tree-as-directories>
 ## Notes
 
 - **Prefer `path` for large exports** to avoid returning large payloads through the conversation. Omit `path` only for small result sets or when you need to inspect the content.
+- **Files stay in the working directory.** `path` is resolved against the directory the MCP server was started in and must not leave it (symlinks are followed before the check); dotfiles and dot-directories are never written. Existing files are only replaced when `overwrite` is `true`.
 - The exported content is directly compatible with [me_memory_import](me_memory_import.md). Exported files and directories can be re-imported directly.
 - **Markdown format**: use a directory path for multi-memory export. The directory mirrors the tree -- each memory is written to `<tree-as-directories>/<name-or-id>.md`. Inline Markdown export (omitting `path`) is only supported for single-memory results.
 - Results are sorted in ascending order by creation time.

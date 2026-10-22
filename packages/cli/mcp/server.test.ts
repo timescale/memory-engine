@@ -1,4 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { parse as yamlParse } from "yaml";
@@ -142,7 +146,11 @@ function captureFetch(
   return requests;
 }
 
-async function connect(spaceMode: McpSpaceMode, lockedSpace?: string) {
+async function connect(
+  spaceMode: McpSpaceMode,
+  lockedSpace?: string,
+  extra: Partial<Pick<McpServerOptions, "fsRoot">> = {},
+) {
   const space =
     spaceMode === "multi"
       ? { spaceMode }
@@ -154,6 +162,7 @@ async function connect(spaceMode: McpSpaceMode, lockedSpace?: string) {
       onUnauthorized: async () => undefined,
     },
     ...space,
+    ...extra,
   });
   const client = new Client({ name: "test", version: "1.0.0" });
   const [clientTransport, serverTransport] =
@@ -720,5 +729,93 @@ test("concurrent writes retain their selected spaces", async () => {
     ).toEqual(["defaultspace", "otherspace01"]);
   } finally {
     await Promise.all([client.close(), server.close()]);
+  }
+});
+
+test("export and import keep file paths inside the working directory", async () => {
+  // realpath: macOS tmpdir is a symlink, and the tools report resolved paths.
+  const root = await realpath(await mkdtemp(join(tmpdir(), "me-mcp-fs-")));
+  const outside = await realpath(
+    await mkdtemp(join(tmpdir(), "me-mcp-outside-")),
+  );
+  const exportResult = {
+    results: [{ ...fullMemory, score: -1 }],
+    total: 1,
+    limit: 10,
+  };
+  captureRpcResult(exportResult);
+  const { client, server } = await connect("locked", undefined, {
+    fsRoot: root,
+  });
+  try {
+    const exportTo = (path: string, overwrite?: boolean) =>
+      client.callTool({
+        name: "me_memory_export",
+        arguments: { format: "json", path, overwrite },
+      });
+
+    // Inside the root: relative and absolute spellings both land in root.
+    const relative = await exportTo("out/memories.json");
+    expect(relative.isError).toBeFalsy();
+    expect(JSON.parse(toolText(relative))).toEqual({
+      count: 1,
+      path: join(root, "out", "memories.json"),
+    });
+    const written = JSON.parse(
+      await readFile(join(root, "out", "memories.json"), "utf-8"),
+    ) as Array<{ id: string }>;
+    expect(written[0]?.id).toBe(fullMemory.id);
+
+    // An existing file is left alone unless overwrite is requested.
+    const clash = await exportTo("out/memories.json");
+    expect(clash.isError).toBe(true);
+    expect(toolText(clash)).toContain("already exists");
+    const replaced = await exportTo("out/memories.json", true);
+    expect(replaced.isError).toBeFalsy();
+
+    // Outside the root, by traversal or by absolute path, is refused.
+    for (const bad of [
+      "../escape.json",
+      join(outside, "escape.json"),
+      "out/../../escape.json",
+    ]) {
+      const refused = await exportTo(bad);
+      expect(refused.isError).toBe(true);
+      expect(toolText(refused)).toContain("inside the working directory");
+    }
+    expect(existsSync(join(outside, "escape.json"))).toBe(false);
+
+    // Dotfiles and dot-directories are refused even inside the root.
+    for (const bad of [".zshenv", ".config/me/config.yaml", "out/.hidden"]) {
+      const refused = await exportTo(bad);
+      expect(refused.isError).toBe(true);
+      expect(toolText(refused)).toContain("dotfile");
+    }
+
+    // A symlink inside the root that points outside is refused.
+    symlinkSync(outside, join(root, "link"));
+    const viaLink = await exportTo("link/escape.json");
+    expect(viaLink.isError).toBe(true);
+    expect(existsSync(join(outside, "escape.json"))).toBe(false);
+
+    // Import: same confinement, plus only memory-file extensions are read.
+    mkdirSync(join(outside, "secrets"));
+    writeFileSync(join(outside, "secrets", "key.md"), "---\n---\nsecret");
+    writeFileSync(join(root, "notes.txt"), "plain text");
+    const importFrom = (path: string, format?: string) =>
+      client.callTool({
+        name: "me_memory_import",
+        arguments: { path, format },
+      });
+    const outsideImport = await importFrom(join(outside, "secrets", "key.md"));
+    expect(outsideImport.isError).toBe(true);
+    expect(toolText(outsideImport)).toContain("inside the working directory");
+    const txtImport = await importFrom("notes.txt", "md");
+    expect(txtImport.isError).toBe(true);
+    expect(toolText(txtImport)).toContain("Unsupported file type");
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
   }
 });

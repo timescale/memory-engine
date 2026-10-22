@@ -9,7 +9,7 @@ Parses the input according to the specified format and creates all memories in o
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
 | `space` | `string` | varies | Absent in locked mode; required nonempty string in multi-space mode. It selects the same-server space for this call. |
-| `path` | `string \| null` | no | File or directory path. Directories are imported recursively. Format is inferred from extension (`.json`, `.yaml`, `.yml`, `.md`, `.ndjson`, `.jsonl`). When both inputs are provided, `path` takes precedence. |
+| `path` | `string \| null` | no | File or directory path inside the MCP server's working directory (relative paths resolve from there; paths that leave it, or that name a dotfile or dot-directory, are refused). Directories are imported recursively. Format is inferred from extension (`.json`, `.yaml`, `.yml`, `.md`, `.ndjson`, `.jsonl`); a single file with any other extension is refused. When both inputs are provided, `path` takes precedence. |
 | `content` | `string \| null` | no | Raw content to import (JSON array, YAML array, or Markdown with frontmatter). Used when `path` is omitted. |
 | `format` | `string \| null` | no | Content format: `"json"`, `"yaml"`, or `"md"`. Optional; content is detected when omitted. |
 
@@ -66,7 +66,7 @@ The tool throws only when **every** chunk fails (total failure). For mixed outco
 
 ```json
 {
-  "path": "/Users/me/memories/export.yaml"
+  "path": "memories/export.yaml"
 }
 ```
 
@@ -76,7 +76,7 @@ Format is inferred from the `.yaml` extension.
 
 ```json
 {
-  "path": "/Users/me/memories/export-dir"
+  "path": "memories/export-dir"
 }
 ```
 
@@ -96,5 +96,5 @@ Recursively imports all supported files (`.json`, `.yaml`, `.yml`, `.md`, `.ndjs
 - **Prefer `path` over `content`** for token efficiency. Reading from a file avoids passing the entire payload through the conversation.
 - If `id` is provided in a memory object, it enables idempotent imports -- re-importing the same data won't create duplicates.
 - This is the counterpart to [me_memory_export](me_memory_export.md). Exported files can be re-imported directly.
-- Returns an error if `path` is provided but the file or directory does not exist.
+- Returns an error if `path` is provided but the file or directory does not exist, lies outside the MCP server's working directory, or names a dotfile or dot-directory.
 - When `path` is a directory, all supported files are imported recursively. Format is inferred per file from extension.

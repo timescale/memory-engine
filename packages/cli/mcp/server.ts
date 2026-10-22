@@ -5,9 +5,15 @@
  * Each instance is locked to a single engine via its API key.
  */
 
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { SHARE_NAMESPACE } from "@memory.build/protocol";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -81,7 +87,61 @@ Detailed agent instructions: ${DOCS_BASE}/mcp/agent-instructions.md`;
 // Tool Registration
 // =============================================================================
 
-type McpRuntimeContext = McpSpaceSelection & { server: string };
+type McpRuntimeContext = McpSpaceSelection & {
+  server: string;
+  /** Directory that `path` arguments on the file tools resolve against and stay inside. */
+  fsRoot: string;
+};
+
+/**
+ * Resolve a tool-supplied `path` against `root` and require the result to stay
+ * inside it. Symlinks along the existing part of the path are followed first,
+ * so a link pointing out of the root is refused too. Components starting with
+ * `.` are refused as well, so the tools never touch dotfiles or dot-directories
+ * (`.git`, `.ssh`, `.env`, ...).
+ */
+export function localPath(root: string, raw: string): string {
+  const rootReal = realpathSync(root);
+  const target = resolve(rootReal, raw);
+  // realpath the deepest existing ancestor, then re-append the missing tail.
+  let probe = target;
+  const tail: string[] = [];
+  while (!existsSync(probe)) {
+    tail.unshift(basename(probe));
+    const parent = dirname(probe);
+    if (parent === probe) break;
+    probe = parent;
+  }
+  const real = join(realpathSync(probe), ...tail);
+  if (real !== rootReal && !real.startsWith(rootReal + sep)) {
+    throw new Error(
+      `path must stay inside the working directory (${rootReal}): ${raw}`,
+    );
+  }
+  const rel = relative(rootReal, real);
+  if (rel.split(sep).some((part) => part.startsWith("."))) {
+    throw new Error(`path may not name a dotfile or dot-directory: ${raw}`);
+  }
+  return real;
+}
+
+/** Write a file, refusing to replace an existing one unless `overwrite`. */
+function writeLocalFile(path: string, content: string, overwrite: boolean) {
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    writeFileSync(path, content, {
+      encoding: "utf-8",
+      flag: overwrite ? "w" : "wx",
+    });
+  } catch (error) {
+    if ((error as { code?: string }).code === "EEXIST") {
+      throw new Error(
+        `${path} already exists; pass overwrite: true to replace it`,
+      );
+    }
+    throw error;
+  }
+}
 
 const multiSpaceInput = z
   .string()
@@ -1221,7 +1281,7 @@ Docs: ${docUrl("me_memory_import")}`,
             .optional()
             .nullable()
             .describe(
-              "Absolute path to a file or directory. Directories are imported recursively. Format is inferred from extension (.json, .yaml, .yml, .md, .ndjson, .jsonl). Mutually exclusive with content.",
+              "Path to a file or directory, inside the MCP server's working directory (relative paths resolve from there). Directories are imported recursively. Format is inferred from extension (.json, .yaml, .yml, .md, .ndjson, .jsonl); other files are refused. Mutually exclusive with content.",
             ),
           content: z
             .string()
@@ -1265,7 +1325,7 @@ Docs: ${docUrl("me_memory_import")}`,
       }> = [];
 
       if (args.path) {
-        const resolved = resolve(args.path);
+        const resolved = localPath(runtime.fsRoot, args.path);
         if (!existsSync(resolved)) {
           throw new Error(`File not found: ${args.path}`);
         }
@@ -1311,12 +1371,17 @@ Docs: ${docUrl("me_memory_import")}`,
             }
           }
         } else {
-          // Single file
+          // Single file — only the supported memory-file extensions.
+          const detected = detectFormatFromExtension(resolved);
+          if (!detected) {
+            throw new Error(
+              `Unsupported file type: ${args.path} (expected .json, .yaml, .yml, .md, .ndjson, or .jsonl)`,
+            );
+          }
           const rawContent = await readFile(resolved, "utf-8");
-          const detected = detectFormatFromExtension(args.path);
           const memories = parseContent(rawContent, {
-            format: format ?? detected ?? undefined,
-            filename: args.path,
+            format: format ?? detected,
+            filename: resolved,
           });
           for (const mem of memories) {
             allMemories.push({
@@ -1489,7 +1554,14 @@ Docs: ${docUrl("me_memory_export")}`,
             .optional()
             .nullable()
             .describe(
-              "Absolute file or directory path to write to. For md format, use a directory path to write one .md file per memory. Omit or null to return content inline.",
+              "File or directory path to write to, inside the MCP server's working directory (relative paths resolve from there). For md format, use a directory path to write one .md file per memory. Omit or null to return content inline.",
+            ),
+          overwrite: z
+            .boolean()
+            .optional()
+            .nullable()
+            .describe(
+              "Replace files that already exist at path. Default false: an existing file is left alone and the call fails.",
             ),
         },
         runtime,
@@ -1497,7 +1569,7 @@ Docs: ${docUrl("me_memory_export")}`,
       annotations: {
         title: "Export Memories",
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
       },
     },
@@ -1537,10 +1609,12 @@ Docs: ${docUrl("me_memory_export")}`,
       }));
 
       const format = args.format as "json" | "yaml" | "md";
+      const overwrite = args.overwrite === true;
+      const target = args.path ? localPath(runtime.fsRoot, args.path) : null;
 
       // Markdown with directory path: write one .md file per memory
-      if (format === "md" && args.path) {
-        const resolved = resolve(args.path);
+      if (format === "md" && target) {
+        const resolved = target;
         if (!existsSync(resolved)) {
           mkdirSync(resolved, { recursive: true });
         }
@@ -1565,10 +1639,10 @@ Docs: ${docUrl("me_memory_export")}`,
               String(mem.id),
               usedByDir,
             );
-            writeFileSync(
+            writeLocalFile(
               join(dir, fname),
               formatMemoryAsMarkdown(mem),
-              "utf-8",
+              overwrite,
             );
           }
           return {
@@ -1576,7 +1650,7 @@ Docs: ${docUrl("me_memory_export")}`,
               {
                 type: "text" as const,
                 text: JSON.stringify(
-                  { count: memories.length, directory: args.path },
+                  { count: memories.length, directory: resolved },
                   null,
                   2,
                 ),
@@ -1591,14 +1665,18 @@ Docs: ${docUrl("me_memory_export")}`,
           );
         }
         if (memories.length === 1 && memories[0]) {
-          await Bun.write(args.path, formatMemoryAsMarkdown(memories[0]));
+          writeLocalFile(
+            resolved,
+            formatMemoryAsMarkdown(memories[0]),
+            overwrite,
+          );
         }
         return {
           content: [
             {
               type: "text" as const,
               text: JSON.stringify(
-                { count: memories.length, path: args.path },
+                { count: memories.length, path: resolved },
                 null,
                 2,
               ),
@@ -1608,7 +1686,7 @@ Docs: ${docUrl("me_memory_export")}`,
       }
 
       // Markdown inline: only allowed for single memory
-      if (format === "md" && !args.path) {
+      if (format === "md" && !target) {
         if (memories.length > 1) {
           throw new Error(
             `Cannot return ${memories.length} memories as inline Markdown. Specify a directory path for multi-memory Markdown export.`,
@@ -1640,14 +1718,14 @@ Docs: ${docUrl("me_memory_export")}`,
         content = JSON.stringify(memories, null, 2);
       }
 
-      if (args.path) {
-        await Bun.write(args.path, content);
+      if (target) {
+        writeLocalFile(target, content, overwrite);
         return {
           content: [
             {
               type: "text" as const,
               text: JSON.stringify(
-                { count: memories.length, path: args.path },
+                { count: memories.length, path: target },
                 null,
                 2,
               ),
@@ -1716,6 +1794,11 @@ export type McpServerOptions = McpSpaceSelection & {
   bearer: BearerSource;
   /** Leave the server connected but expose no tools when local policy is inactive. */
   tools?: boolean;
+  /**
+   * Directory the file tools (`me_memory_import` / `me_memory_export`) resolve
+   * `path` arguments against and are confined to. Defaults to `process.cwd()`.
+   */
+  fsRoot?: string;
 };
 
 /** Build a configured MCP server. Exported for in-memory protocol tests. */
@@ -1746,14 +1829,16 @@ export function createMcpServer(options: McpServerOptions): McpServer {
     },
   );
 
+  const fsRoot = options.fsRoot ?? process.cwd();
   const runtime: McpRuntimeContext =
     options.spaceMode === "locked"
       ? {
           server: options.server,
           spaceMode: "locked",
           lockedSpace: options.lockedSpace,
+          fsRoot,
         }
-      : { server: options.server, spaceMode: "multi" };
+      : { server: options.server, spaceMode: "multi", fsRoot };
   if (options.tools !== false) {
     registerTools(mcpServer, getMemoryClient, getUserClient, runtime);
   }
