@@ -380,25 +380,24 @@ async function authorizeViaDevice(p: {
   openBrowser: boolean;
 }): Promise<OAuthTokens> {
   const auth = await startDeviceAuthorization({ server: p.server });
-  const openUrl = auth.verificationUriComplete ?? auth.verificationUri;
 
+  // The server also returns `verification_uri_complete` (code in the query
+  // string). It is deliberately not shown or opened: the web page ignores the
+  // query parameter and requires the code to be typed, so a pre-filled link
+  // can't be used to phish an approval (RFC 8628 §5.4).
   if (p.fmt === "text") {
-    // Lead with the complete URL (code embedded) so it can be opened/pasted
-    // directly; keep the bare URL + code for manual entry on a device that
-    // can't follow the link.
-    const message = auth.verificationUriComplete
-      ? `Open this URL on any device:\n\n  ${auth.verificationUriComplete}\n\nCan't use that link? Go to ${auth.verificationUri} and enter the code:\n\n  ${auth.userCode}`
-      : `Go to ${auth.verificationUri} and enter the code:\n\n  ${auth.userCode}`;
-    clack.note(message, "To sign in:");
+    clack.note(
+      `Go to ${auth.verificationUri} and enter the code:\n\n  ${auth.userCode}`,
+      "To sign in:",
+    );
     // Best-effort convenience open (harmless if there's no browser here).
-    if (p.openBrowser) void openBrowser(openUrl);
+    if (p.openBrowser) void openBrowser(auth.verificationUri);
   } else {
     // Structured modes: emit the verification details on stderr so automation
     // can surface them, while stdout stays reserved for the final result object.
     process.stderr.write(
       `${JSON.stringify({
         verification_uri: auth.verificationUri,
-        verification_uri_complete: auth.verificationUriComplete,
         user_code: auth.userCode,
         expires_in: auth.expiresIn,
       })}\n`,

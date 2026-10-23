@@ -6,9 +6,19 @@
  * CLI's poll of `/device/token` succeeds and it receives a session token.
  *
  * It sits outside `AuthGate`: an unauthenticated visitor signs in first (OAuth
- * returns to this same URL, `user_code` preserved), then the code is claimed and
- * approved. The flow talks directly to better-auth's device-authorization
- * endpoints (same-origin, cookie-authenticated):
+ * returns to this same URL), then types the code, which is claimed and
+ * approved.
+ *
+ * The code is never taken from the URL. better-auth also returns a
+ * `verification_uri_complete` (`/device?user_code=…`), but honoring it would
+ * let anyone who starts `me login --device` send a signed-in victim a link that
+ * lands directly on the Approve screen for the attacker's code (RFC 8628 §5.4;
+ * the pattern behind real-world device-code phishing). Making the user
+ * transcribe the code from their own terminal is the standard mitigation, and
+ * what GitHub's device page does.
+ *
+ * The flow talks directly to better-auth's device-authorization endpoints
+ * (same-origin, cookie-authenticated):
  *   - GET  /api/v1/auth/device?user_code=…  → claims the code to this user + status
  *   - POST /api/v1/auth/device/approve      → { userCode }
  *   - POST /api/v1/auth/device/deny         → { userCode }
@@ -20,11 +30,6 @@ import { Logo } from "./icons.tsx";
 import { SignInCard } from "./SignInCard.tsx";
 
 const AUTH_BASE = "/api/v1/auth";
-
-/** Read the `user_code` the CLI put in `verification_uri_complete`, if present. */
-function readUserCode(): string {
-  return new URLSearchParams(window.location.search).get("user_code") ?? "";
-}
 
 function normalizeUserCode(code: string): string {
   return code.trim().toUpperCase();
@@ -79,7 +84,7 @@ type State =
 
 export function DeviceVerificationPage() {
   const [state, setState] = useState<State>({ status: "checking" });
-  const [codeInput, setCodeInput] = useState(readUserCode);
+  const [codeInput, setCodeInput] = useState("");
 
   // Claim a user code against the current session and read its status. Called
   // once the visitor is known to be signed in.
@@ -113,13 +118,13 @@ export function DeviceVerificationPage() {
     }
   }, []);
 
-  // On mount: confirm a session (whoami), then claim the code from the URL (if
-  // any). Anonymous visitors are sent through sign-in first.
+  // On mount: confirm a session (whoami), then ask for the code. Anonymous
+  // visitors are sent through sign-in first.
   const start = useCallback(async () => {
     setState({ status: "checking" });
     try {
       const me = await userClient.whoami();
-      await claim(readUserCode(), me.email);
+      setState({ status: "needCode", email: me.email });
     } catch (err) {
       if (isAuthFailure(err)) {
         setState({ status: "anonymous" });
@@ -130,7 +135,7 @@ export function DeviceVerificationPage() {
         });
       }
     }
-  }, [claim]);
+  }, []);
 
   useEffect(() => {
     void start();
@@ -164,31 +169,14 @@ export function DeviceVerificationPage() {
   }
 
   if (state.status === "anonymous") {
-    // After OAuth the browser returns here (same path + user_code), the effect
-    // re-runs, and the now-present session lets us claim the code. When a code
-    // is present, frame the whole card as "authorize THIS code" (title + a code
-    // banner) so the provider choice reads as a step toward that, not a bare
-    // login. A bare /device visit keeps the generic card (the code is entered
-    // after sign-in via the needCode step).
-    const pendingCode = normalizeUserCode(readUserCode());
-    const deviceCallbackURL = window.location.pathname + window.location.search;
+    // After OAuth the browser returns to /device, the effect re-runs, and the
+    // now-present session leads to the code entry step.
     return (
       <SignInCard
-        title={pendingCode ? "Authorize a device" : undefined}
-        subtitle={
-          pendingCode
-            ? "Sign in to authorize this device for the Memory Engine CLI."
-            : "Sign in to authorize a device for the Memory Engine CLI."
-        }
-        banner={
-          pendingCode ? (
-            <div className="mt-5">
-              <CodeBox code={pendingCode} />
-            </div>
-          ) : undefined
-        }
-        callbackURL={deviceCallbackURL}
-        errorCallbackURL={deviceCallbackURL}
+        title="Authorize a device"
+        subtitle="Sign in to authorize a device for the Memory Engine CLI."
+        callbackURL="/device"
+        errorCallbackURL="/device"
       />
     );
   }
@@ -198,7 +186,15 @@ export function DeviceVerificationPage() {
       <Card>
         <Heading>Authorize a device</Heading>
         <p className="mt-3 text-[13px] text-ink/55">
-          Enter the code shown in your terminal to continue.
+          Enter the code shown in your terminal
+          {state.email ? (
+            <>
+              {" "}
+              to sign in as{" "}
+              <span className="font-medium text-ink/80">{state.email}</span>
+            </>
+          ) : null}
+          .
         </p>
         <form
           className="mt-6 flex flex-col gap-3"
@@ -243,11 +239,15 @@ export function DeviceVerificationPage() {
               as <span className="font-medium text-ink/80">{state.email}</span>
             </>
           ) : null}
-          . Only approve if you started a{" "}
+          .
+        </p>
+        <p className="mt-3 text-[13px] text-ink/55">
+          Approve only if you ran{" "}
           <code className="rounded bg-ink/[0.06] px-1 py-0.5 font-mono text-[12px]">
-            me login
+            me login --device
           </code>{" "}
-          in a terminal.
+          yourself and this code matches your terminal. If someone sent you this
+          code, deny it: approving gives them access to your account.
         </p>
 
         <div className="mt-5">
