@@ -1,2 +1,10 @@
+[install]
+# CI and release builds must install exactly what bun.lock says; a drifted
+# package.json fails instead of being silently re-resolved against the live
+# registry. Bun does not freeze automatically under CI (npm/pnpm do). To
+# intentionally change deps, use `bun add`/`bun remove` or
+# `./bun install --no-frozen-lockfile` and commit the lockfile.
+frozenLockfile = true
+
 [test]
 root = "packages"
