@@ -133,6 +133,10 @@ export async function requireGroupAdmin(
   context: SpaceRpcContext,
   groupId: string,
 ): Promise<void> {
+  // is_group_admin checks the bare principal, not the key's declarations, so a
+  // restricted key must never reach it (the registry gate denies group.* first;
+  // this guards any future caller).
+  requireUnrestrictedApiKey(context);
   if (context.admin) return;
   const groupAdmin = await context.core.isGroupAdmin(
     context.principalId,
@@ -193,8 +197,19 @@ export async function callerAdministersServiceAccount(
   context: SpaceRpcContext,
   principalId: string,
 ): Promise<boolean> {
-  if (context.principalKind !== "u") return false;
+  // is_service_account_admin also ignores key declarations; see requireGroupAdmin.
+  if (context.principalKind !== "u" || context.apiKeyRestricted) return false;
   return context.core.isServiceAccountAdmin(principalId, context.principalId);
+}
+
+/** Deny authority-changing management to restricted (scope-declared) api keys. */
+export function requireUnrestrictedApiKey(context: SpaceRpcContext): void {
+  if (context.apiKeyRestricted) {
+    throw new AppError(
+      "FORBIDDEN",
+      "This API key is restricted to its declared space access and cannot manage members, groups, grants, or invitations.",
+    );
+  }
 }
 
 // =============================================================================

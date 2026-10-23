@@ -174,6 +174,7 @@ export function createRouter(ctx: ServerContext): Router {
       principalName: spaceContext.principalName,
       apiKeyId: spaceContext.apiKeyId,
       apiKeyName: spaceContext.apiKeyName,
+      apiKeyRestricted: spaceContext.apiKeyRestricted,
       treeAccess: spaceContext.treeAccess,
       admin: spaceContext.admin,
       embeddingConfig,

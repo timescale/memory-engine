@@ -61,6 +61,8 @@ export interface SpaceAuthContext {
   apiKeyId: string | null;
   /** API key display name when authenticated by one. */
   apiKeyName: string | null;
+  /** True when authenticated by a restricted (scope-declared) api key. */
+  apiKeyRestricted: boolean;
   /** The principal's effective grants in this space. May be empty. */
   treeAccess: TreeAccess;
   /** Whether the principal is a space admin (principal_space.admin). */
@@ -144,6 +146,7 @@ async function authenticateSpaceInner(
   let principalName: string;
   let apiKeyId: string | null;
   let apiKeyName: string | null;
+  let apiKeyRestricted = false;
 
   if (parsed) {
     // Api keys are global; the space comes solely from the header. A key whose
@@ -157,6 +160,7 @@ async function authenticateSpaceInner(
     principalId = validated.memberId;
     apiKeyId = validated.apiKeyId;
     apiKeyName = validated.apiKeyName;
+    apiKeyRestricted = validated.restricted;
     principalName = validated.name;
     // validate_api_key already joined core.principal, so the kind comes back with
     // the validation — no second lookup. An api key only ever belongs to a member
@@ -271,6 +275,7 @@ async function authenticateSpaceInner(
       principalName,
       apiKeyId,
       apiKeyName,
+      apiKeyRestricted,
       treeAccess,
       admin,
     },

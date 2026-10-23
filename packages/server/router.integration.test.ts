@@ -46,6 +46,23 @@ function userRpcRequest(token: string, method: string, params: unknown = {}) {
   });
 }
 
+function memoryRpcRequest(
+  token: string,
+  space: string,
+  method: string,
+  params: unknown = {},
+) {
+  return new Request("http://localhost/api/v1/memory/rpc", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "X-Me-Space": space,
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
+  });
+}
+
 beforeAll(async () => {
   sql = postgres(URL, { onnotice: () => {} });
   coreSchema = `core_test_${rand(8)}`;
@@ -121,4 +138,65 @@ test("a restricted PAT keeps its space scope and cannot manage the account throu
     error?: { data?: { code?: string } };
   };
   expect(managementBody.error?.data?.code).toBe("FORBIDDEN");
+});
+
+test("a restricted PAT held by a group admin cannot manage groups, grants, or invitations", async () => {
+  const [row] = await sql`select uuidv7() as id`;
+  const userId = row?.id as string;
+  const [other] = await sql`select uuidv7() as id`;
+  const otherId = other?.id as string;
+  await core.createUser(userId, `u_${rand(8)}@example.com`);
+  await core.createUser(otherId, `u_${rand(8)}@example.com`);
+
+  const slug = rand(12);
+  const spaceId = await core.createSpace(slug, "Space");
+  await core.addPrincipalToSpace(spaceId, userId);
+  await core.addPrincipalToSpace(spaceId, otherId);
+  const groupId = await core.createGroup(spaceId, "eng");
+  await core.addGroupMember(spaceId, groupId, userId, true);
+
+  const key = await core.createApiKey(userId, "scoped-pat", {
+    access: [{ spaceId, grants: [{ treePath: "share", access: ACCESS.read }] }],
+  });
+  const token = formatApiKey(key.lookupId, key.secret);
+
+  const call = async (method: string, params: unknown = {}) => {
+    const response = await router.handleRequest(
+      memoryRpcRequest(token, slug, method, params),
+    );
+    expect(response.status).toBe(200);
+    return (await response.json()) as {
+      result?: unknown;
+      error?: { data?: { code?: string } };
+    };
+  };
+
+  // The group admin's full identity could do this; the restricted key cannot.
+  const add = await call("group.addMember", {
+    groupId,
+    memberId: otherId,
+  });
+  expect(add.error?.data?.code).toBe("FORBIDDEN");
+  expect(await core.isGroupAdmin(otherId, groupId, spaceId)).toBe(false);
+
+  for (const method of [
+    "group.listMembers",
+    "grant.list",
+    "grant.set",
+    "principal.add",
+    "invite.list",
+  ]) {
+    const body = await call(method, {});
+    expect(body.error?.data?.code).toBe("FORBIDDEN");
+  }
+
+  // Another principal's access is off limits ...
+  const theirs = await call("access.effective", { principalId: otherId });
+  expect(theirs.error?.data?.code).toBe("FORBIDDEN");
+
+  // ... but read-only self-service the CLI/MCP rely on still works.
+  const mine = await call("access.effective", {});
+  expect(mine.error).toBeUndefined();
+  const resolve = await call("principal.resolve", { name: "nobody" });
+  expect(resolve.error).toBeUndefined();
 });

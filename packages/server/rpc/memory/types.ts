@@ -28,6 +28,8 @@ export interface SpaceRpcContext extends HandlerContext {
   apiKeyId: string | null;
   /** API key display name when authenticated by one. */
   apiKeyName: string | null;
+  /** True when authenticated by a restricted (scope-declared) api key. */
+  apiKeyRestricted: boolean;
   /** The principal's effective grants in this space. May be empty. */
   treeAccess: TreeAccess;
   /** Whether the principal is a space admin (principal_space.admin). */

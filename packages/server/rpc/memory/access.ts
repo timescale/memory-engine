@@ -108,6 +108,13 @@ async function requireEffectiveAccessInspection(
   principalId: string,
 ): Promise<void> {
   if (principalId === ctx.principalId) return;
+  // A restricted key may inspect only its own access, even if it declares admin.
+  if (ctx.apiKeyRestricted) {
+    throw new AppError(
+      "FORBIDDEN",
+      "This API key is restricted to its declared space access and can only inspect its own effective access",
+    );
+  }
   if (ctx.admin) return;
   if (await callerAdministersServiceAccount(ctx, principalId)) return;
   throw new AppError(
