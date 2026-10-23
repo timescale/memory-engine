@@ -58,8 +58,6 @@ export interface DeviceAuthorization {
   userCode: string;
   /** Where the human goes to enter the code. */
   verificationUri: string;
-  /** Same URL with the code pre-filled (`?user_code=…`), when provided. */
-  verificationUriComplete?: string;
   /** Device/user code lifetime, seconds. */
   expiresIn: number;
   /** Minimum seconds between polls. */
@@ -129,10 +127,6 @@ export async function startDeviceAuthorization(p: {
     deviceCode,
     userCode,
     verificationUri,
-    verificationUriComplete:
-      typeof body.verification_uri_complete === "string"
-        ? body.verification_uri_complete
-        : undefined,
     expiresIn:
       typeof body.expires_in === "number"
         ? body.expires_in

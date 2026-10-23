@@ -62,8 +62,6 @@ describe("startDeviceAuthorization", () => {
       deviceCode: "dev-123",
       userCode: "WXYZ-1234",
       verificationUri: "https://api.example.com/device",
-      verificationUriComplete:
-        "https://api.example.com/device?user_code=WXYZ-1234",
       expiresIn: 900,
       interval: 5,
     });
