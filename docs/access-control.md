@@ -35,7 +35,7 @@ An API key created with [`me apikey create --allow`](cli/me-apikey.md#me-apikey-
 - `--space-admin <space>` permits space-admin authority only when the holder is also an effective admin in that space.
 - Restricted declarations are immutable. Rotate the key: create a replacement, deploy and verify it, then revoke the old key.
 
-Restricted user PATs cannot manage the account, including minting, revoking, or inspecting API keys.
+Restricted keys, whatever they declare (including `--space-admin`), cannot manage members, groups, grants, or invitations, and may inspect only their own effective access. Read-only lookups (listing members, groups, or resolving a principal) remain available. Restricted user PATs additionally cannot manage the account, including minting, revoking, or inspecting API keys.
 
 ## Spaces
 

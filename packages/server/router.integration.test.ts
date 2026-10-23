@@ -177,7 +177,10 @@ test("a restricted PAT held by a group admin cannot manage groups, grants, or in
     memberId: otherId,
   });
   expect(add.error?.data?.code).toBe("FORBIDDEN");
-  expect(await core.isGroupAdmin(otherId, groupId, spaceId)).toBe(false);
+  // Ordinary membership alone inherits the group's grants, so check the roster
+  // itself, not just admin status.
+  const members = await core.listGroupMembers(spaceId, groupId);
+  expect(members.map((m) => m.memberId)).toEqual([userId]);
 
   for (const method of [
     "group.listMembers",

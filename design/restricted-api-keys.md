@@ -69,6 +69,19 @@ Restricted keys authenticate as their holder; they do not impersonate an agent
 or alter the principal model. On the memory endpoint, normal tree-access checks
 consume the key-clamped effective grant set.
 
+Space management is denied outright to restricted keys, even those declaring
+space-admin: `group.*` mutations and `group.listMembers`, `grant.*`,
+`principal.add` / `principal.remove`, `invite.*`, and `access.effective` on
+any principal other than the caller all return `FORBIDDEN` before parameter
+validation. Group-admin and service-account-admin authority is checked against
+the bare principal, not the key's declarations, so a scoped key held by a group
+admin could otherwise widen another member's grants through `group.addMember`.
+A flat deny-list is simpler and safer than threading the key through every
+structural authority check; a scoped agent credential has no legitimate need to
+edit membership. Read-only lookups (`principal.list` / `resolve` / `lookup`,
+`group.list` / `listForMember`, `space.listMembers`, `access.effective` on
+self) stay available because the CLI and MCP server depend on them.
+
 For the user endpoint, a restricted personal access token may inspect its
 identity and discover only its declared spaces. It cannot manage account
 resources, including API keys. This prevents a scoped token from widening or

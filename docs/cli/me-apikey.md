@@ -42,6 +42,8 @@ me apikey create [name] [--service <service>] [--expires <timestamp> | --ttl <du
 | `--allow <scope>` | Repeatable restricted-access declaration: `<space>` permits all of the holder's current effective access there; `<space>:<path>:<r\|w\|o>` sets a tree ceiling. Use `.` for the active space. |
 | `--space-admin <space>` | Repeatable: permit space-admin authority in a declared space, but only when the holder is actually an admin. |
 
+Regardless of what it declares, a restricted key can never manage members, groups, grants, or invitations (`me group`, `me access grant` / `rm-grant`, `me space add-member` / `remove-member` / `invite`), nor inspect another principal's effective access. It can still read memories, write within its declared grants, and run read-only lookups such as `me access` on itself and `me space members`. Use the holder's full credential for management.
+
 Names are unique per principal, so you can't mint two keys with the same name for the same target. The auto-generated default carries a random suffix, making repeated `me apikey create` calls extremely unlikely to collide.
 
 ```bash
