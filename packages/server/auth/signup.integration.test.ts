@@ -89,9 +89,12 @@ async function signIn(
     accessToken: "test-access-token",
     scopes: ["email"],
   }));
+  // 1.7 derives provider identity from the raw profile (`accountSubject`
+  // reads `profile.id` for GitHub), not from `user.id`.
   const userInfo = mock(async () => ({
-    user: { id: accountId, email, emailVerified, name: "Test User" },
-    data: {},
+    user: { email, emailVerified, name: "Test User" },
+    // GitHub keys on `profile.id`, Google on `profile.sub`.
+    data: { id: accountId, sub: accountId },
   }));
   provider.validateAuthorizationCode = tokens;
   provider.getUserInfo = userInfo;
@@ -214,10 +217,19 @@ async function exchangeCliCode(
   });
 }
 
-function expectError(response: Response, error: string) {
+function expectError(
+  response: Response,
+  error: string,
+  descriptionIncludes?: string,
+) {
   const location = new URL(response.headers.get("Location") ?? "", BASE);
   expect(location.origin + location.pathname).toBe(`${BASE}/login`);
   expect(location.searchParams.get("error")).toBe(error);
+  if (descriptionIncludes !== undefined) {
+    expect(location.searchParams.get("error_description") ?? "").toContain(
+      descriptionIncludes,
+    );
+  }
   expect(response.headers.get("Set-Cookie") ?? "").not.toContain(
     "me.session_token=",
   );
@@ -246,7 +258,7 @@ describe("signup restriction through the OAuth callback", () => {
     "person@tigerdata.com@evil.com",
   ])("blocks %s without creating a user, account, or session", async (email) => {
     const response = await signIn(restricted.auth, "github", email);
-    expectError(response, "SIGNUP_RESTRICTED:tigerdata.com");
+    expectError(response, "SIGNUP_RESTRICTED", "@tigerdata.com");
     expect(await counts()).toEqual({ users: 0, accounts: 0, sessions: 0 });
   });
 
@@ -283,7 +295,7 @@ describe("signup restriction through the OAuth callback", () => {
       undefined,
       flow.loginURL.search,
     );
-    expectError(rejected, "SIGNUP_RESTRICTED:tigerdata.com");
+    expectError(rejected, "SIGNUP_RESTRICTED", "@tigerdata.com");
     expect(await counts()).toEqual({ users: 0, accounts: 0, sessions: 0 });
     const retryURL = new URL(rejected.headers.get("Location") ?? "", BASE);
     expect(readSignInError(retryURL.search)).toBe(

@@ -77,7 +77,7 @@ describe("startServer signup configuration", () => {
         await expect(result).rejects.toMatchObject({
           body: {
             code: "SIGNUP_RESTRICTED",
-            message: `SIGNUP_RESTRICTED:${expected}`,
+            message: expect.stringContaining(`@${expected} `),
           },
         });
       } else {

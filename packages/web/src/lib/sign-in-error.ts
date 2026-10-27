@@ -15,10 +15,14 @@ export function readSignInError(search: string): string | null {
   if (description) return description;
   const code = params.get("error");
   if (!code) return null;
-  // User-creation failures arrive as message tokens, without error_description.
+  // Fallbacks for a bare code with no description (older servers put the
+  // domain in the code itself; 1.7 servers always send a description).
   const signupDomain = /^SIGNUP_RESTRICTED:([a-z0-9.-]+)$/.exec(code)?.[1];
   if (signupDomain) {
     return `New registrations are currently limited to verified @${signupDomain} email addresses. Existing users can continue to sign in.`;
+  }
+  if (code === "SIGNUP_RESTRICTED") {
+    return "New registrations are currently limited to verified email addresses at an approved domain. Existing users can continue to sign in.";
   }
   return code === "EMAIL_NOT_VERIFIED"
     ? "Your email is not verified with your identity provider. Verify it with GitHub or Google, then sign in again."

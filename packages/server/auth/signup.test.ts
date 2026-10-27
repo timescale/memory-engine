@@ -97,12 +97,12 @@ describe("new-user signup hook", () => {
     "person@evil.com@tigerdata.com",
     "@tigerdata.com",
     "person@tigerdata.com ",
-  ])("rejects %s with the callback-safe domain token", async (email) => {
+  ])("rejects %s with a SIGNUP_RESTRICTED code naming the domain", async (email) => {
     await expect(beforeCreate(restricted, email, true)).rejects.toMatchObject({
       status: "FORBIDDEN",
       body: {
         code: "SIGNUP_RESTRICTED",
-        message: "SIGNUP_RESTRICTED:tigerdata.com",
+        message: expect.stringContaining("@tigerdata.com "),
       },
     });
   });
@@ -112,7 +112,10 @@ describe("new-user signup hook", () => {
       beforeCreate(restricted, "person@tigerdata.com", false),
     ).rejects.toMatchObject({
       status: "FORBIDDEN",
-      body: { code: "EMAIL_NOT_VERIFIED", message: "EMAIL_NOT_VERIFIED" },
+      body: {
+        code: "EMAIL_NOT_VERIFIED",
+        message: expect.stringContaining("not verified"),
+      },
     });
   });
 

@@ -33,8 +33,11 @@ const EXPECTED_TABLES = [
   "migration",
   "oauth_access_token",
   "oauth_client",
+  "oauth_client_assertion",
+  "oauth_client_resource",
   "oauth_consent",
   "oauth_refresh_token",
+  "oauth_resource",
   "sessions",
   "users",
   "verifications",
@@ -93,7 +96,16 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
     "created_at",
     "updated_at",
   ],
-  jwks: ["id", "public_key", "private_key", "created_at", "expires_at"],
+  // 008 added alg/crv (better-auth 1.7).
+  jwks: [
+    "id",
+    "public_key",
+    "private_key",
+    "created_at",
+    "expires_at",
+    "alg",
+    "crv",
+  ],
   // better-auth device-authorization plugin's `deviceCode` model (007).
   device_code: [
     "id",
@@ -133,11 +145,23 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
     "token_endpoint_auth_method",
     "grant_types",
     "response_types",
+    // `public` and `type` are the 1.6 spelling, superseded in 1.7 by
+    // token_endpoint_auth_method='none' and application_type. Kept (nullable,
+    // unread) so a rollback to 1.6 still works; 008 did not drop them.
     "public",
     "type",
     "require_pkce",
     "reference_id",
     "metadata",
+    // 008 (better-auth 1.7)
+    "client_discovery_id",
+    "client_credentials_scopes",
+    "backchannel_logout_uri",
+    "backchannel_logout_session_required",
+    "application_type",
+    "jwks",
+    "jwks_uri",
+    "dpop_bound_access_tokens",
   ],
   oauth_refresh_token: [
     "id",
@@ -151,6 +175,14 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
     "revoked",
     "auth_time",
     "scopes",
+    // 008
+    "authorization_code_id",
+    "resources",
+    "requested_user_info_claims",
+    "rotated_at",
+    "rotation_replay_response",
+    "rotation_replay_expires_at",
+    "confirmation",
   ],
   oauth_access_token: [
     "id",
@@ -163,6 +195,12 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
     "expires_at",
     "created_at",
     "scopes",
+    // 008
+    "authorization_code_id",
+    "resources",
+    "requested_user_info_claims",
+    "revoked",
+    "confirmation",
   ],
   oauth_consent: [
     "id",
@@ -172,7 +210,36 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
     "scopes",
     "created_at",
     "updated_at",
+    // 008
+    "resources",
+    "requested_user_info_claims",
   ],
+  // 008: declared by oauth-provider 1.7, unused by this configuration.
+  oauth_resource: [
+    "id",
+    "identifier",
+    "name",
+    "access_token_ttl",
+    "refresh_token_ttl",
+    "signing_algorithm",
+    "signing_key_id",
+    "allowed_scopes",
+    "custom_claims",
+    "dpop_bound_access_tokens_required",
+    "disabled",
+    "created_at",
+    "updated_at",
+    "policy_version",
+    "metadata",
+  ],
+  oauth_client_resource: [
+    "id",
+    "client_id",
+    "resource_id",
+    "metadata",
+    "created_at",
+  ],
+  oauth_client_assertion: ["id", "expires_at"],
 };
 
 // 004_device_authorization stays in the log (it ran historically); 006 dropped
@@ -187,6 +254,7 @@ const EXPECTED_MIGRATIONS = [
   "005_verifications",
   "006_betterauth",
   "007_device_code",
+  "008_betterauth_1_7",
 ];
 
 // The functions the schema still owns after 006/007: the updated_at trigger fn,

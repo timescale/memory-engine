@@ -140,3 +140,41 @@ reach the endpoint but receives no data from the space SQL functions.
 - Auth is identity resolution, not permission granting. Space membership,
   admin authority, tree grants, and restricted-key ceilings are evaluated for
   every applicable request.
+
+## Upgrading better-auth
+
+better-auth and `@better-auth/oauth-provider` own the shapes of the auth
+tables, but the DDL lives in our hand-written migrations
+(`packages/database/auth/migrate`) with snake_case names mapped through the
+`schema` options in `packages/server/auth/betterauth.ts`. A version bump can
+add columns or tables the library reads at boot. The procedure:
+
+1. Bump `better-auth` in `packages/server` and `packages/web`, and
+   `@better-auth/oauth-provider` in `packages/server`, to the same version.
+   Install with `./bun install --config=/dev/null` (the lockfile is frozen by
+   default).
+2. Run `./bun packages/server/auth/dump-schema.ts`. It builds the real
+   `createBetterAuth` configuration and prints every model, column, type, and
+   requiredness the installed library expects, without touching a database.
+3. Diff that against `EXPECTED_COLUMNS` in
+   `packages/database/auth/migrate/migrate.integration.test.ts`, which is the
+   drift guard and fails on any mismatch. Write an incremental migration for
+   the additions, add snake_case mappings for new camelCase fields and models
+   in `betterauth.ts`, bump `AUTH_SCHEMA_VERSION`, and update the test's
+   expected columns, tables, and migration list.
+4. Read the release notes for behavioural changes in the plugins we use:
+   `oauthProvider`, `deviceAuthorization`, `bearer`, `jwt`, and the social
+   providers. Semantics can move without a schema change (1.7 replaced the
+   `public`/`type` client columns with `token_endpoint_auth_method = 'none'`
+   and `application_type`, which needed a data update for the seeded
+   `me-cli` row; and the OAuth callback started forwarding a hook's `code` and
+   `message` as `error` and `error_description`).
+5. Run `./bun run check:full`. The signup integration suite exercises the
+   public-client PKCE exchange and refresh; `device-flow.integration.test.ts`
+   covers the device grant end to end.
+6. Deploy to dev and sign in through the browser, run `me login` and
+   `me login --device`, and confirm an existing CLI token still refreshes.
+
+Rollback to the previous minor is safe only if the migration was additive;
+keep dropped-column cleanups for a later migration once the new version has
+run in production.

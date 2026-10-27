@@ -176,16 +176,19 @@ export function createBetterAuth(opts: BetterAuthOptions) {
               !emailParts[0] ||
               emailParts[1]?.toLowerCase() !== signupEmailDomain
             ) {
-              // better-auth's OAuth callback forwards message, not body.code.
+              // The OAuth callback redirects to the login page with
+              // `error=<code>&error_description=<message>` (better-auth 1.7);
+              // the web reads the description as the user-facing text.
               throw new APIError("FORBIDDEN", {
                 code: "SIGNUP_RESTRICTED",
-                message: `SIGNUP_RESTRICTED:${signupEmailDomain}`,
+                message: `New registrations are currently limited to verified @${signupEmailDomain} email addresses. Existing users can continue to sign in.`,
               });
             }
             if (user.emailVerified !== true) {
               throw new APIError("FORBIDDEN", {
                 code: "EMAIL_NOT_VERIFIED",
-                message: "EMAIL_NOT_VERIFIED",
+                message:
+                  "Your email is not verified with your identity provider. Verify it with GitHub or Google, then sign in again.",
               });
             }
           },
@@ -287,6 +290,14 @@ export function createBetterAuth(opts: BetterAuthOptions) {
               responseTypes: "response_types",
               requirePKCE: "require_pkce",
               referenceId: "reference_id",
+              clientDiscoveryId: "client_discovery_id",
+              clientCredentialsScopes: "client_credentials_scopes",
+              backchannelLogoutUri: "backchannel_logout_uri",
+              backchannelLogoutSessionRequired:
+                "backchannel_logout_session_required",
+              applicationType: "application_type",
+              jwksUri: "jwks_uri",
+              dpopBoundAccessTokens: "dpop_bound_access_tokens",
             },
           },
           oauthAccessToken: {
@@ -299,6 +310,8 @@ export function createBetterAuth(opts: BetterAuthOptions) {
               refreshId: "refresh_id",
               expiresAt: "expires_at",
               createdAt: "created_at",
+              authorizationCodeId: "authorization_code_id",
+              requestedUserInfoClaims: "requested_user_info_claims",
             },
           },
           oauthRefreshToken: {
@@ -311,6 +324,11 @@ export function createBetterAuth(opts: BetterAuthOptions) {
               expiresAt: "expires_at",
               createdAt: "created_at",
               authTime: "auth_time",
+              authorizationCodeId: "authorization_code_id",
+              requestedUserInfoClaims: "requested_user_info_claims",
+              rotatedAt: "rotated_at",
+              rotationReplayResponse: "rotation_replay_response",
+              rotationReplayExpiresAt: "rotation_replay_expires_at",
             },
           },
           oauthConsent: {
@@ -321,7 +339,39 @@ export function createBetterAuth(opts: BetterAuthOptions) {
               referenceId: "reference_id",
               createdAt: "created_at",
               updatedAt: "updated_at",
+              requestedUserInfoClaims: "requested_user_info_claims",
             },
+          },
+          // Declared by the 1.7 plugin but unused here (single resource
+          // server, public client). Mapped so the tables follow the same
+          // snake_case convention as the rest of the auth schema.
+          oauthResource: {
+            modelName: "oauth_resource",
+            fields: {
+              accessTokenTtl: "access_token_ttl",
+              refreshTokenTtl: "refresh_token_ttl",
+              signingAlgorithm: "signing_algorithm",
+              signingKeyId: "signing_key_id",
+              allowedScopes: "allowed_scopes",
+              customClaims: "custom_claims",
+              dpopBoundAccessTokensRequired:
+                "dpop_bound_access_tokens_required",
+              createdAt: "created_at",
+              updatedAt: "updated_at",
+              policyVersion: "policy_version",
+            },
+          },
+          oauthClientResource: {
+            modelName: "oauth_client_resource",
+            fields: {
+              clientId: "client_id",
+              resourceId: "resource_id",
+              createdAt: "created_at",
+            },
+          },
+          oauthClientAssertion: {
+            modelName: "oauth_client_assertion",
+            fields: { expiresAt: "expires_at" },
           },
         },
       }),

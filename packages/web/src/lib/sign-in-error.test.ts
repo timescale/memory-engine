@@ -53,3 +53,20 @@ describe("readSignInError", () => {
     );
   });
 });
+
+describe("readSignInError with a 1.7 server", () => {
+  test("uses the description the server sends alongside SIGNUP_RESTRICTED", () => {
+    const query = new URLSearchParams({
+      error: "SIGNUP_RESTRICTED",
+      error_description:
+        "New registrations are currently limited to verified @tigerdata.com email addresses. Existing users can continue to sign in.",
+    });
+    expect(readSignInError(`?${query}`)).toContain("@tigerdata.com");
+  });
+
+  test("still explains a bare SIGNUP_RESTRICTED code", () => {
+    expect(readSignInError("?error=SIGNUP_RESTRICTED")).toContain(
+      "New registrations are currently limited",
+    );
+  });
+});
