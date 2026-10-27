@@ -11,16 +11,11 @@
 import { isRpcError } from "@memory.build/client";
 import { useCallback, useEffect, useState } from "react";
 import { memoryClient, userClient } from "../api/client.ts";
+import { isAuthFailure } from "../lib/auth-failure.ts";
 import { SignInCard } from "./SignInCard.tsx";
 
 const SPACE_STORAGE_KEY = "me.space";
 const INSTALL_CMD = "curl -fsSL https://install.memory.build | sh";
-
-function isAuthFailure(err: unknown): boolean {
-  // `code` is the numeric JSON-RPC code; the string app code lives in `data`
-  // (use the RpcError.is helper rather than comparing the number to a string).
-  return isRpcError(err) && err.is("UNAUTHORIZED");
-}
 
 type State =
   | { status: "loading" }

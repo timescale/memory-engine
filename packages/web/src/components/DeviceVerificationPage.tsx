@@ -23,9 +23,9 @@
  *   - POST /api/v1/auth/device/approve      → { userCode }
  *   - POST /api/v1/auth/device/deny         → { userCode }
  */
-import { isRpcError } from "@memory.build/client";
 import { useCallback, useEffect, useState } from "react";
 import { userClient } from "../api/client.ts";
+import { isAuthFailure } from "../lib/auth-failure.ts";
 import { Logo } from "./icons.tsx";
 import { SignInCard } from "./SignInCard.tsx";
 
@@ -33,12 +33,6 @@ const AUTH_BASE = "/api/v1/auth";
 
 function normalizeUserCode(code: string): string {
   return code.trim().toUpperCase();
-}
-
-function isAuthFailure(err: unknown): boolean {
-  // `code` is the numeric JSON-RPC code; the string app code lives in `data`
-  // (use the RpcError.is helper rather than comparing the number to a string).
-  return isRpcError(err) && err.is("UNAUTHORIZED");
 }
 
 /**

@@ -12,10 +12,10 @@
  * server, which sets the cookie; logout POSTs to the server, which clears it.
  */
 
-import { isRpcError } from "@memory.build/client";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { signOut } from "../api/auth-client.ts";
 import { memoryClient, userClient } from "../api/client.ts";
+import { isAuthFailure } from "../lib/auth-failure.ts";
 import {
   type AccountInvitation,
   AccountProvider,
@@ -24,18 +24,6 @@ import { InvitationList } from "./account/Invitations.tsx";
 import { SignInCard } from "./SignInCard.tsx";
 
 const SPACE_STORAGE_KEY = "me.space";
-
-/**
- * True only for an authentication failure (the user-RPC auth gate returns a 401
- * with app code "UNAUTHORIZED"). Other failures — CSRF/403, 5xx, network — are
- * not fixed by re-login, so they get an error/retry screen instead.
- */
-function isAuthFailure(err: unknown): boolean {
-  if (!isRpcError(err)) return false;
-  return (
-    String(err.code) === "UNAUTHORIZED" || err.data?.code === "UNAUTHORIZED"
-  );
-}
 
 interface Identity {
   email: string;
