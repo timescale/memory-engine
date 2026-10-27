@@ -25,6 +25,11 @@ on:
         default: "main"
         type: string
 
+# The jobs only read the repo and dispatch to tiger-agents-deploy with a PAT;
+# nothing needs the workflow token to write.
+permissions:
+  contents: read
+
 jobs:
   resolve:
     runs-on: ubuntu-latest
@@ -34,15 +39,21 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Resolve ref to commit SHA
         id: resolve
+        # Inputs reach the shell through env, never by template expansion into
+        # the script, so a crafted ref can't inject commands.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_REF: ${{ inputs.ref }}
+          EVENT_SHA: ${{ github.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            REF="${{ inputs.ref }}"
-            SHA=$(git rev-parse --verify "$REF^{commit}" 2>/dev/null) || { echo "::error::Ref '$REF' not found"; exit 1; }
-            echo "Resolved ref '$REF' to SHA: $SHA"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            SHA=$(git rev-parse --verify "${INPUT_REF}^{commit}" 2>/dev/null) || { echo "::error::Ref '$INPUT_REF' not found"; exit 1; }
+            echo "Resolved ref '$INPUT_REF' to SHA: $SHA"
           else
-            SHA="${{ github.sha }}"
+            SHA="$EVENT_SHA"
             echo "Using event SHA: $SHA"
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"

@@ -10,6 +10,11 @@ on:
         required: true
         type: string
 
+# The jobs only read the repo and dispatch to tiger-agents-deploy with a PAT;
+# nothing needs the workflow token to write.
+permissions:
+  contents: read
+
 jobs:
   resolve:
     runs-on: ubuntu-latest
@@ -19,15 +24,21 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Resolve tag to commit SHA
         id: resolve
+        # Inputs reach the shell through env, never by template expansion into
+        # the script, so a crafted tag can't inject commands.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          EVENT_SHA: ${{ github.sha }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
-            SHA=$(git rev-list -1 "$TAG" 2>/dev/null) || { echo "::error::Tag '$TAG' not found"; exit 1; }
-            echo "Resolved tag '$TAG' to SHA: $SHA"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            SHA=$(git rev-list -1 "$INPUT_TAG" 2>/dev/null) || { echo "::error::Tag '$INPUT_TAG' not found"; exit 1; }
+            echo "Resolved tag '$INPUT_TAG' to SHA: $SHA"
           else
-            SHA="${{ github.sha }}"
+            SHA="$EVENT_SHA"
             echo "Using event SHA: $SHA"
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"

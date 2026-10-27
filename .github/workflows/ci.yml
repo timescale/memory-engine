@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Read-only token: CI only checks out and tests. Jobs that need more must
+# raise it per job.
+permissions:
+  contents: read
+
 jobs:
   ci:
     runs-on: ubuntu-latest
