@@ -175,6 +175,21 @@ add columns or tables the library reads at boot. The procedure:
 6. Deploy to dev and sign in through the browser, run `me login` and
    `me login --device`, and confirm an existing CLI token still refreshes.
 
-Rollback to the previous minor is safe only if the migration was additive;
-keep dropped-column cleanups for a later migration once the new version has
-run in production.
+### Rolling back
+
+An image-only rollback does not work: `runSchemaMigrations` refuses to start
+an application whose `AUTH_SCHEMA_VERSION` is older than the version stamped
+in the database. After the 1.7 migration the database says `0.0.3` and a 1.6
+image says `0.0.2`, so the old image fails at boot.
+
+To roll back to 1.6 after 008 has run:
+
+1. `update <auth schema>.version set version = '0.0.2';`
+2. Deploy the 1.6 image. It ignores the columns and tables 008 added and
+   still reads `public`/`type` on `oauth_client`, which 008 left in place.
+3. Sessions, CLI tokens, and API keys issued under 1.7 keep working;
+   in-flight social sign-ins and device codes fail once and are retried.
+
+Rolling forward again re-applies nothing (008 is recorded) and re-stamps
+`0.0.3`. This only holds while migrations stay additive; keep dropped-column
+cleanups for a later migration once the new version has run in production.

@@ -500,11 +500,14 @@ export function createBetterAuth(opts: BetterAuthOptions) {
     // Join the user so callers get identity (whoami / provisioning) in one hop.
     // A user-less token (client_credentials) yields no row → treated as invalid;
     // our API auth is user-bound (API keys use core validation, not OAuth).
+    // `revoked` (1.7): the provider marks access tokens revoked in place when
+    // the issuing session ends or the client revokes them, rather than
+    // deleting the row, so an unexpired row can still be dead.
     const { rows } = await pool.query(
       `select t.user_id, u.email, u.name, u.email_verified, t.scopes
          from oauth_access_token t
          join users u on u.id = t.user_id
-        where t.token = $1 and t.expires_at > now()
+        where t.token = $1 and t.expires_at > now() and t.revoked is null
         limit 1`,
       [hashOAuthToken(token)],
     );

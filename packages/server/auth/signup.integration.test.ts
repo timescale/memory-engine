@@ -356,6 +356,78 @@ describe("signup restriction through the OAuth callback", () => {
     expect(await counts()).toEqual({ users: 1, accounts: 1, sessions: 1 });
   });
 
+  test("a revoked access token no longer authenticates, even before it expires", async () => {
+    const flow = await startCliAuthorization(unrestricted.auth);
+    const signedIn = await signIn(
+      unrestricted.auth,
+      "github",
+      "existing@example.com",
+      true,
+      undefined,
+      flow.loginURL.search,
+    );
+    const tokens = await exchangeCliCode(unrestricted.auth, flow, signedIn);
+    expect(
+      await unrestricted.verifyOAuthAccessToken(tokens.access_token),
+    ).not.toBeNull();
+
+    // 1.7 marks the row revoked in place (session end, back-channel logout,
+    // explicit revocation) instead of deleting it.
+    const hash = createHash("sha256").update(tokens.access_token).digest("hex");
+    const updated = await sql.unsafe(
+      `update ${authSchema}.oauth_access_token set revoked = now()
+        where token = $1 and expires_at > now()`,
+      [hash],
+    );
+    expect(updated.count).toBe(1);
+    expect(
+      await unrestricted.verifyOAuthAccessToken(tokens.access_token),
+    ).toBeNull();
+  });
+
+  test("a refresh token issued by 1.6 (new grant-binding columns null) still refreshes", async () => {
+    // Mint a user through a real sign-in, then insert the token rows the way
+    // the 1.6 provider stored them: only the columns that existed before
+    // migration 008, everything added by 008 left null. This is the shape
+    // every CLI login that predates the upgrade has in production.
+    const signedIn = await signIn(
+      unrestricted.auth,
+      "github",
+      "existing@example.com",
+      true,
+    );
+    const user = await signedInUser(unrestricted.auth, signedIn);
+    const rawRefresh = `legacy_refresh_${crypto.randomUUID()}`;
+    const rawAccess = `legacy_access_${crypto.randomUUID()}`;
+    const hash = (t: string) => createHash("sha256").update(t).digest("hex");
+    const [refreshRow] = await sql.unsafe(
+      `insert into ${authSchema}.oauth_refresh_token
+         (token, client_id, user_id, expires_at, created_at, auth_time, scopes)
+       values ($1, $2, $3, now() + interval '30 days', now(), now(),
+               '["openid","profile","email","offline_access"]'::jsonb)
+       returning id`,
+      [hash(rawRefresh), CLI_CLIENT_ID, user.id],
+    );
+    await sql.unsafe(
+      `insert into ${authSchema}.oauth_access_token
+         (token, client_id, user_id, refresh_id, expires_at, created_at, scopes)
+       values ($1, $2, $3, $4, now() + interval '1 hour', now(),
+               '["openid","profile","email","offline_access"]'::jsonb)`,
+      [hash(rawAccess), CLI_CLIENT_ID, user.id, refreshRow?.id],
+    );
+    expect(await unrestricted.verifyOAuthAccessToken(rawAccess)).toMatchObject({
+      email: "existing@example.com",
+    });
+
+    const refreshed = await requestTokens(unrestricted.auth, {
+      grant_type: "refresh_token",
+      refresh_token: rawRefresh,
+    });
+    expect(
+      await unrestricted.verifyOAuthAccessToken(refreshed.access_token),
+    ).toMatchObject({ email: "existing@example.com", userId: user.id });
+  });
+
   test("existing external auth-only user signs in, links a second verified provider, and tolerates a changed provider email", async () => {
     // No core principal or space: auth.users alone defines an existing user.
     const accountId = crypto.randomUUID();

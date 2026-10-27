@@ -7,7 +7,14 @@
 -- `token_endpoint_auth_method = 'none'` and loopback-redirect rules from
 -- `application_type = 'native'`. Without that update the CLI's code exchange
 -- fails with "client secret must be provided". The legacy columns are left in
--- place (nullable, unread) so a rollback to 1.6 still works.
+-- place (nullable, unread) so the 1.6 code still finds its shape.
+--
+-- Rollback to a 1.6 image is NOT image-only: the server refuses to start when
+-- its AUTH_SCHEMA_VERSION (0.0.2 on 1.6) is older than the stamped database
+-- version (0.0.3 after this migration). To roll back, first
+--   update <auth schema>.version set version = '0.0.2';
+-- then deploy the 1.6 image. The extra columns and tables are ignored by 1.6.
+-- See design/authentication.md, "Upgrading better-auth".
 --
 -- Columns follow the 006 snake_case convention and are mapped in
 -- betterauth.ts `schema` overrides. Shapes come from

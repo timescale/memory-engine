@@ -147,7 +147,8 @@ const EXPECTED_COLUMNS: Record<string, string[]> = {
     "response_types",
     // `public` and `type` are the 1.6 spelling, superseded in 1.7 by
     // token_endpoint_auth_method='none' and application_type. Kept (nullable,
-    // unread) so a rollback to 1.6 still works; 008 did not drop them.
+    // unread) so 1.6 code still finds them after a rollback (which also needs
+    // the version stamp reset; see 008_betterauth_1_7.sql). 008 did not drop them.
     "public",
     "type",
     "require_pkce",
