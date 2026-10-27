@@ -33,6 +33,21 @@ function rateLimitServer(): ReturnType<typeof Bun.serve> {
 }
 
 /** Mock SQL whose claim returns one embeddable row; everything else no-ops. */
+/**
+ * An embedding config that can never reach a real provider: a closed loopback
+ * port fails with ECONNREFUSED at once. Tests that claim a row and expect the
+ * embedding call to throw use this so they do not depend on the network
+ * (CI egress filtering turns a real api.openai.com attempt into a hang).
+ */
+const OFFLINE_EMBEDDING = {
+  provider: "openai" as const,
+  model: "test",
+  dimensions: 3,
+  apiKey: "test-key",
+  baseUrl: "http://127.0.0.1:1/v1",
+  options: { maxRetries: 0 },
+};
+
 function claimsOneRowSql() {
   return createMockSql({
     begin: async (fn: (tx: unknown) => Promise<unknown>) => {
@@ -177,11 +192,7 @@ describe("Worker", () => {
     });
 
     const worker = new Worker(mockSql as never, {
-      embedding: {
-        provider: "openai",
-        model: "test",
-        dimensions: 3,
-      },
+      embedding: OFFLINE_EMBEDDING,
       discover: async () => [{ schema: "me_test12345678" }],
       idleDelayMs: 50,
       drainTimeoutMs: 150,
@@ -204,9 +215,11 @@ describe("Worker", () => {
 
   test("does not prune when claim returns rows", async () => {
     // When claim returns rows, processBatch proceeds to call generateEmbeddings
-    // against the (unreachable) test URL and throws. Control jumps to the
-    // worker's catch block before reaching the prune branch in the loop.
-    // Either way, the observable behavior is: prune was not invoked.
+    // and throws. Control jumps to the worker's catch block before reaching
+    // the prune branch in the loop. Either way, the observable behavior is:
+    // prune was not invoked. The embedding call is pointed at a closed
+    // loopback port so it fails with ECONNREFUSED at once rather than
+    // reaching the real API (which hangs under CI egress filtering).
     let claimCalls = 0;
     let pruneCalls = 0;
 
@@ -237,11 +250,7 @@ describe("Worker", () => {
     });
 
     const worker = new Worker(mockSql as never, {
-      embedding: {
-        provider: "openai",
-        model: "test",
-        dimensions: 3,
-      },
+      embedding: OFFLINE_EMBEDDING,
       discover: async () => [{ schema: "me_test12345678" }],
       idleDelayMs: 50,
       drainTimeoutMs: 150,
@@ -276,11 +285,7 @@ describe("Worker", () => {
     });
 
     const worker = new Worker(mockSql as never, {
-      embedding: {
-        provider: "openai",
-        model: "test",
-        dimensions: 3,
-      },
+      embedding: OFFLINE_EMBEDDING,
       discover: async () => [{ schema: "me_test12345678" }],
       idleDelayMs: 50,
       drainTimeoutMs: 150,
@@ -421,11 +426,7 @@ describe("Worker", () => {
     // (this is more of a code review assertion — the catch block
     // for RateLimitError calls continue before incrementing)
     const worker = new Worker(mockSql as never, {
-      embedding: {
-        provider: "openai",
-        model: "test",
-        dimensions: 3,
-      },
+      embedding: OFFLINE_EMBEDDING,
       discover: async () => [{ schema: "me_test12345678" }],
       idleDelayMs: 50,
       drainTimeoutMs: 200,
@@ -472,7 +473,7 @@ describe("rate-limit gate", () => {
     const worker = new Worker(
       mockSql as never,
       {
-        embedding: { provider: "openai", model: "test", dimensions: 3 },
+        embedding: OFFLINE_EMBEDDING,
         discover: async () => [{ schema: "me_test12345678" }],
         idleDelayMs: 50,
         refreshIntervalMs: 1_000_000,
@@ -547,11 +548,7 @@ describe("WorkerPool", () => {
     });
 
     const pool = new WorkerPool(mockSql as never, {
-      embedding: {
-        provider: "openai",
-        model: "test",
-        dimensions: 3,
-      },
+      embedding: OFFLINE_EMBEDDING,
       discover: async () => [{ schema: "me_test12345678" }],
       idleDelayMs: 50,
       drainTimeoutMs: 150,
