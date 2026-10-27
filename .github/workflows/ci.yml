@@ -11,10 +11,11 @@ jobs:
     env:
       # TEST_CI disables conditional test skips: every gated suite runs, and
       # missing prerequisites fail loudly instead of skipping silently. The
-      # OpenAI key drives the live embedding suite; a fork PR (no secrets)
-      # therefore fails rather than silently testing less.
+      # live OpenAI suite is the one exception (opt-in via
+      # RUN_OPENAI_INTEGRATION, never in CI): CI makes no calls to external
+      # APIs, so it needs no provider credential and is not subject to the
+      # runner's egress filtering.
       TEST_CI: "1"
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
     steps:
       - uses: actions/checkout@v6
@@ -40,11 +41,10 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # See the ci job for TEST_CI semantics. The e2e suite needs the database
-      # URL (the container below) and a real OpenAI key for its embedding
-      # worker (a few thousand text-embedding-3-small tokens per run).
+      # URL (the container below); its embedding worker talks to a local fake
+      # (e2e/fake-embeddings.ts), so no provider credential is needed.
       TEST_CI: "1"
       TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
     steps:
       - uses: actions/checkout@v6

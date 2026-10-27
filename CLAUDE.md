@@ -135,8 +135,11 @@ code changes, run `./bun run check` (fast, no DB). Before committing, run
 against ghost when explicitly asked to test against ghost. CI is the strict
 gate: it runs every suite with `TEST_CI=1`, which disables conditional skips
 — any new `describe.skipIf` gate **must** include `!process.env.TEST_CI` in
-its condition (pattern: `packages/embedding/generate.test.ts`,
-`e2e/cli.e2e.test.ts`) so CI never silently skips it.
+its condition (pattern: `e2e/cli.e2e.test.ts`) so CI never silently skips it.
+The one exception is a suite that calls a paid external API: CI makes no
+external calls (the runner filters egress), so such a suite is opt-in only
+(pattern: `RUN_OPENAI_INTEGRATION` in `packages/embedding/generate.test.ts`)
+and tests that need embeddings use a local fake (`e2e/fake-embeddings.ts`).
 
 > `packages/web` and `packages/docs-site` have their own tsconfigs, so they
 > aren't part of the root `tsc` project. The root `typecheck` script chains in
