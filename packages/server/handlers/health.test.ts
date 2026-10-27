@@ -58,9 +58,15 @@ describe("readyHandler", () => {
       checks: { db: string };
     };
     expect(body.status).toBe("unavailable");
-    expect(body.checks.db).toContain("connection refused");
+    // The unauthenticated response says only that the check failed; the
+    // driver's message goes to the log.
+    expect(body.checks.db).toBe("error");
+    expect(JSON.stringify(body)).not.toContain("connection refused");
     // The alert keys off this exact message at error level.
     expect(errorSpy).toHaveBeenCalledTimes(1);
     expect(errorSpy.mock.calls[0]?.[0]).toBe("Readiness check failed");
+    expect(errorSpy.mock.calls[0]?.[1]).toEqual({
+      db: "error: connection refused",
+    });
   });
 });

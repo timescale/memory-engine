@@ -24,10 +24,10 @@ export function readyHandler(
 
     const [dbResult] = await Promise.allSettled([db`SELECT 1`]);
 
-    checks.db =
-      dbResult.status === "fulfilled"
-        ? "ok"
-        : `error: ${dbResult.reason instanceof Error ? dbResult.reason.message : String(dbResult.reason)}`;
+    // The endpoint is unauthenticated, so the response carries only a
+    // constant; the driver's error text (which can name hosts, databases,
+    // users, or pool state) goes to the log.
+    checks.db = dbResult.status === "fulfilled" ? "ok" : "error";
 
     const allOk = checks.db === "ok";
 
@@ -38,7 +38,13 @@ export function readyHandler(
       // warning) clears the alert's `level >= 'error'` gate. This is a log,
       // not an exception, so it stays out of the "Elevated internal errors"
       // signal.
-      error("Readiness check failed", { db: checks.db });
+      const reason =
+        dbResult.status === "rejected"
+          ? dbResult.reason instanceof Error
+            ? dbResult.reason.message
+            : String(dbResult.reason)
+          : "unknown";
+      error("Readiness check failed", { db: `error: ${reason}` });
     }
 
     return json(
