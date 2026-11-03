@@ -160,14 +160,57 @@ function validatedMode(request: Request): string | undefined {
   return VALID_MODES.has(value) ? value : undefined;
 }
 
+const REDACTED = "[redacted]";
+
+function decodedSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+/**
+ * Invite links carry a live membership token in the path
+ * (`/invite/inv.<secret>`), so the path must never be recorded as-is: a log
+ * reader holding a still-valid open invite could join the space with it.
+ * Every segment after `/invite/` and any segment that looks like an invite
+ * token is replaced with a fixed placeholder. Segments are compared decoded so
+ * percent-encoding cannot slip a token past the check.
+ */
+export function redactTelemetryPath(path: string): string {
+  const segments = path.split("/");
+  let afterInvite = false;
+  return segments
+    .map((segment, index) => {
+      const decoded = decodedSegment(segment).toLowerCase();
+      if (afterInvite && segment !== "") return REDACTED;
+      if (/(^|\/)inv\./.test(decoded)) return REDACTED;
+      if (index === 1 && decoded.startsWith("invite/")) return REDACTED;
+      if (index === 1 && decoded === "invite") afterInvite = true;
+      return segment;
+    })
+    .join("/");
+}
+
+/**
+ * The recorded URL keeps origin and redacted path only. Query strings are
+ * dropped because they can carry one-time values (OAuth codes, state, callback
+ * URLs that embed invite links); fragments never reach the server anyway.
+ */
+function telemetryUrl(url: URL): string {
+  return `${url.origin}${redactTelemetryPath(url.pathname)}`;
+}
+
 export function httpRequestTelemetryAttributes(
   request: Request,
 ): Record<string, string> {
-  const path = new URL(request.url).pathname;
+  const url = new URL(request.url);
+  const path = url.pathname;
   const attributes: Record<string, string> = {
     "http.method": request.method,
-    "http.url": request.url,
-    "http.path": path,
+    "http.url": telemetryUrl(url),
+    "http.path": redactTelemetryPath(path),
   };
   if (path !== TOKEN_ENDPOINT_PATH) return attributes;
 

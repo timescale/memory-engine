@@ -46,6 +46,58 @@ describe("httpRequestTelemetryAttributes", () => {
     });
   });
 
+  test("never records invite link tokens in url or path", () => {
+    const token = "inv.FAKEtestTOKENvalue123";
+    const cases = [
+      `https://api.memory.build/invite/${token}`,
+      `https://api.memory.build/invite/${token}?next=/somewhere`,
+      `https://api.memory.build/%69nvite/${token}`,
+      `https://api.memory.build/invite/%69nv.FAKEtestTOKENvalue123`,
+      `https://api.memory.build/invite%2F${token}`,
+      `https://api.memory.build/INVITE/${token}/extra`,
+      `https://api.memory.build/somewhere/${token}`,
+    ];
+    for (const url of cases) {
+      const attributes = httpRequestTelemetryAttributes(new Request(url));
+      const serialized = JSON.stringify(attributes).toLowerCase();
+      expect(serialized).not.toContain("faketesttokenvalue123");
+      expect(attributes["http.path"]).toContain("[redacted]");
+    }
+
+    expect(
+      httpRequestTelemetryAttributes(
+        new Request(`https://api.memory.build/invite/${token}`),
+      ),
+    ).toEqual({
+      "http.method": "GET",
+      "http.url": "https://api.memory.build/invite/[redacted]",
+      "http.path": "/invite/[redacted]",
+    });
+  });
+
+  test("drops query strings that may carry one-time values", () => {
+    const attributes = httpRequestTelemetryAttributes(
+      new Request(
+        "https://api.memory.build/api/v1/auth/callback/google?code=FAKEcode&state=FAKEstate&callbackURL=%2Finvite%2Finv.FAKEtoken#frag",
+      ),
+    );
+    expect(attributes).toEqual({
+      "http.method": "GET",
+      "http.url": "https://api.memory.build/api/v1/auth/callback/google",
+      "http.path": "/api/v1/auth/callback/google",
+    });
+  });
+
+  test("leaves ordinary paths unchanged", () => {
+    const attributes = httpRequestTelemetryAttributes(
+      new Request("https://api.memory.build/assets/index-abc.js"),
+    );
+    expect(attributes["http.path"]).toBe("/assets/index-abc.js");
+    expect(attributes["http.url"]).toBe(
+      "https://api.memory.build/assets/index-abc.js",
+    );
+  });
+
   test("drops oversized token-endpoint identity headers", () => {
     const attributes = httpRequestTelemetryAttributes(
       new Request("https://api.memory.build/api/v1/auth/oauth2/token", {
