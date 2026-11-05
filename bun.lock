@@ -97,7 +97,7 @@
     },
     "packages/embedding": {
       "name": "@memory.build/embedding",
-      "version": "0.9.4",
+      "version": "0.9.5",
       "dependencies": {
         "@ai-sdk/openai": "^3.0.129",
         "@pydantic/logfire-node": "^0.18.29",
@@ -107,7 +107,7 @@
     },
     "packages/engine": {
       "name": "@memory.build/engine",
-      "version": "0.9.4",
+      "version": "0.9.5",
       "dependencies": {
         "@memory.build/database": "workspace:*",
         "@pydantic/logfire-node": "^0.18.29",
@@ -129,7 +129,7 @@
     },
     "packages/server": {
       "name": "memory-engine-server",
-      "version": "0.9.4",
+      "version": "0.9.5",
       "dependencies": {
         "@better-auth/oauth-provider": "1.7.14",
         "@memory.build/database": "workspace:*",
@@ -193,7 +193,7 @@
     },
     "packages/worker": {
       "name": "@memory.build/worker",
-      "version": "0.9.4",
+      "version": "0.9.5",
       "dependencies": {
         "@memory.build/database": "workspace:*",
         "@memory.build/embedding": "workspace:*",
