@@ -4,6 +4,35 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.9.2 (client) / 0.9.4 (server)
+
+Server `server/v0.9.4` · Client `v0.9.2`.
+
+### Fixed
+- **Every new CLI authorization requires explicit browser approval.** Existing
+  browser sessions, previous consent grants, and older CLI versions cannot
+  silently authorize a new local program. The approval page shows the account,
+  permissions, and exact callback address. Invalid or expired requests, account
+  changes, and cross-origin approval submissions are rejected.
+- **The CLI displays its actual callback address before opening the browser.**
+  Compare it with the approval page before authorizing. JSON and YAML modes emit
+  `authorization_url` and `redirect_uri` on stderr, including with `--no-browser`,
+  while stdout remains reserved for the final result.
+- **MCP memory exports cannot overwrite executable or non-regular files.**
+  File destinations must end in `.md`, `.json`, `.yaml`, or `.yml`. New files
+  have non-executable permissions. Rejected executable overwrites preserve the
+  original contents and permissions, including during Markdown directory export.
+
+### Compatibility and database
+- Auth migration 009 advances `AUTH_SCHEMA_VERSION` to `0.0.4` and sets the
+  existing CLI client's `skip_consent` to false. Server-side enforcement still
+  requires approval when previous consent or cached client metadata exists.
+- Existing sessions, access tokens, refresh tokens, device login, and API keys
+  remain usable. No compatibility-minimum changes.
+- Deploy the approval UI and server enforcement together to every API replica.
+  An image-only rollback to a server expecting auth schema `0.0.3` is blocked;
+  prefer a forward fix rather than restoring a server without approval enforcement.
+
 ## 0.9.3 (server)
 
 Server `server/v0.9.3` · Client unchanged (`v0.9.1`).
