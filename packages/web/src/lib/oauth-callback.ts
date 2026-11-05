@@ -1,29 +1,15 @@
 /**
- * Build the `callbackURL` the `/login` page hands to better-auth social sign-in:
- * where the browser lands once the provider callback sets the session cookie.
+ * Build the browser destination after social sign-in.
+ * Ordinary GET authorization requests do not require a signature.
+ * The server adds the consent requirement to every new CLI authorization.
  *
- * Normal login (no `prompt`): the better-auth authorize endpoint 302s here with
- * its *signed* query, and we return that query verbatim on `/oauth2/authorize` so
- * the endpoint re-validates the signature and resumes the original request.
+ * Preserve the incoming query unless it contains a login prompt. That prompt
+ * would send the browser back to the login page after sign-in. For account
+ * switching, keep the standard OAuth parameters and remove the satisfied login
+ * prompt and obsolete signing parameters. The server then requires approval.
  *
- * Switch login (`me login --switch` sends `prompt=login`): the authorize handler
- * redirects to `/login` **every time** the prompt set contains `login` — it only
- * strips a satisfied login prompt inside better-auth's own postLogin continuation,
- * which this custom page bypasses. Returning the signed query (which still carries
- * `prompt=login`) verbatim therefore loops forever: sign in → authorize → back to
- * `/login` → …
- *
- * So for a `login` prompt we rebuild a clean, unsigned authorize request from just
- * the standard OAuth params (dropping `prompt` and better-auth's signing params,
- * since removing `prompt` invalidates the signature). better-auth treats it as a
- * fresh request, sees the freshly-established session, and — `me-cli` being a
- * trusted PKCE client with consent skipped — issues the code straight to the CLI
- * loopback. No loop.
- *
- * Only the `login` prompt is special-cased: it's the sole value the CLI emits and
- * the one that loops through this page. Any other query (no prompt, or a different
- * prompt such as `consent`, which better-auth resolves via its own consent page)
- * is returned verbatim so its signature and intended semantics are preserved.
+ * Native consent submissions use the original signed oauth_query instead.
+ * The provider verifies that envelope before it completes approval.
  */
 
 const AUTHORIZE_PATH = "/api/v1/auth/oauth2/authorize";
@@ -60,8 +46,7 @@ function withQuery(query: string): string {
 export function buildAuthorizeCallbackURL(search: string): string {
   const incoming = new URLSearchParams(search);
 
-  // Anything but a `login` prompt (incl. no prompt): return the signed query
-  // verbatim so its signature — and any other prompt semantics — survive.
+  // Preserve other prompts. The server still requires approval.
   if (!promptRequestsLogin(incoming.get("prompt"))) {
     return withQuery(search.replace(/^\?/, ""));
   }

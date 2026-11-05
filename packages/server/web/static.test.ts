@@ -71,6 +71,20 @@ describe("createStaticHandler", () => {
     expect(csp).toContain(`script-src 'self' 'sha256-${hash}'`);
   });
 
+  test("consent pages prevent framing, caching, and signed-query referrer leaks", async () => {
+    const res = await handler.handle(
+      new Request("http://x/consent?client_id=me-cli&sig=test"),
+      "/consent",
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(res.headers.get("Content-Security-Policy")).toContain(
+      "frame-ancestors 'none'",
+    );
+  });
+
   test("security headers are also set on asset responses", async () => {
     const res = await get("/assets/app-abc123.js");
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");

@@ -72,8 +72,10 @@ changing existing accounts.
 ## OAuth for CLI and MCP
 
 `me login` uses OAuth 2.1 authorization code with PKCE and an RFC 8252 loopback
-redirect. The first-party `me-cli` client is public, requires PKCE, and skips
-consent. The authorization server issues opaque access and refresh tokens. Both
+redirect. The first-party `me-cli` client is public and requires PKCE. Every
+new authorization requires explicit browser approval, including requests from
+older CLI versions and users with an existing consent grant. The authorization
+server issues opaque access and refresh tokens. Both
 are hashed before storage; a request is validated by hashing its presented
 access token, finding an unexpired row, and resolving the bound user.
 
@@ -86,6 +88,50 @@ is never refreshed.
 OAuth credentials are user-bound. Client-credentials tokens without a user do
 not authenticate the RPC APIs; independently managed automation uses a service
 account API key instead.
+
+### CLI approval
+
+`packages/server/auth/cli-consent.ts` adds `prompt=consent` to CLI authorization
+parameters in the better-auth before hook. It covers GET, POST, and internal
+provider continuations. Only the provider's successful consent continuation,
+identified by the original POST to `/oauth2/consent` with `accept: true`, may
+complete without another approval redirect. Caller-supplied continuation flags
+or a previous `oauth_consent` row do not grant this exception. `prompt=none`
+returns an HTTP OAuth `consent_required` error without issuing a code.
+
+The hosted `/consent` page obtains validated account, client, scope, and callback
+details from the session-authenticated `/oauth2/cli-consent-details` endpoint.
+The server verifies the provider's original signed query and its expiry before
+returning details. The page submits that same envelope to the native consent
+endpoint only after an explicit decision. The displayed account ID accompanies
+the decision; a different current account causes rejection. Native origin checks
+protect cookie-authenticated POSTs. The page refuses unexpected callback
+responses, disables duplicate submissions, and has no automatic approval path.
+The static handler prevents framing, caching, and referrer disclosure on this
+page. Neither a client ID nor a matching callback port proves executable identity.
+
+The CLI displays its actual bound loopback address before opening the browser.
+Users compare this address with the approval page. Existing authorization URLs,
+account switching, and `--no-browser` remain supported. Structured stdout and
+device authorization do not change.
+
+Native signed query envelopes expire but are not single-use approval receipts.
+They are not custom tokens or a new authorization store. Replaying a valid
+same-origin consent POST can create another code during the envelope lifetime;
+every new authorization still requires consent. The browser prevents accidental
+double submission, but the server does not claim single-use consent envelopes.
+
+Migration `009_cli_consent` sets the existing CLI client's `skip_consent` to false
+and advances the auth schema version to `0.0.4`. The hook enforces approval even
+if a running replica cached the old client flag. Deploy the UI and enforcement
+together and replace every API replica before considering the rollout complete.
+Old replicas without the hook remain vulnerable even after the data migration.
+Existing credentials are not revoked and token refresh remains unchanged.
+
+An image-only rollback to an application expecting auth schema `0.0.3` is blocked
+by the schema-version guard. Restoring the old application also removes the
+per-authorization protection, so do not reset the schema stamp and roll back as
+an ordinary recovery step. Prefer a forward fix.
 
 ## Device authorization
 
@@ -181,6 +227,10 @@ An image-only rollback does not work: `runSchemaMigrations` refuses to start
 an application whose `AUTH_SCHEMA_VERSION` is older than the version stamped
 in the database. After the 1.7 migration the database says `0.0.3` and a 1.6
 image says `0.0.2`, so the old image fails at boot.
+
+The procedure below describes the older 008 upgrade only. After 009, it would
+remove the CLI approval protection. Do not use it for the current deployment;
+follow the CLI approval rollout and forward-fix guidance above.
 
 To roll back to 1.6 after 008 has run:
 

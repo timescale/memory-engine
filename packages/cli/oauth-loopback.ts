@@ -68,8 +68,8 @@ export interface LoopbackOptions {
   authorizeUrl: (redirectUri: string) => string;
   /** Open the authorize URL in a browser (best-effort). */
   openBrowser: (url: string) => Promise<void>;
-  /** Invoked with the authorize URL (e.g. to print it as a manual fallback). */
-  onAuthorizeUrl?: (url: string) => void;
+  /** Report the authorize URL and bound redirect URI before browser launch. */
+  onAuthorizeUrl?: (url: string, redirectUri: string) => void;
   /**
    * Web UI origin (API_BASE_URL). When set, the success page links the user to
    * the UI so they don't have to navigate there manually.
@@ -154,7 +154,7 @@ export function runLoopbackAuth(opts: LoopbackOptions): Promise<string> {
 
     const redirectUri = `http://${host}:${server.port}/callback`;
     const authorizeUrl = opts.authorizeUrl(redirectUri);
-    opts.onAuthorizeUrl?.(authorizeUrl);
+    opts.onAuthorizeUrl?.(authorizeUrl, redirectUri);
     void opts.openBrowser(authorizeUrl);
   });
 }

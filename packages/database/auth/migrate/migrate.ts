@@ -47,6 +47,9 @@ import incremental007 from "./incremental/007_device_code.sql" with {
 import incremental008 from "./incremental/008_betterauth_1_7.sql" with {
   type: "text",
 };
+import incremental009 from "./incremental/009_cli_consent.sql" with {
+  type: "text",
+};
 import provisionSql from "./provision.sql" with { type: "text" };
 
 const DIR = "packages/database/auth/migrate";
@@ -94,6 +97,11 @@ const incrementals: Migration[] = [
     name: "008_betterauth_1_7",
     file: "incremental/008_betterauth_1_7.sql",
     sql: incremental008,
+  },
+  {
+    name: "009_cli_consent",
+    file: "incremental/009_cli_consent.sql",
+    sql: incremental009,
   },
 ];
 

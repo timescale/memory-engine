@@ -256,6 +256,7 @@ const EXPECTED_MIGRATIONS = [
   "006_betterauth",
   "007_device_code",
   "008_betterauth_1_7",
+  "009_cli_consent",
 ];
 
 // The functions the schema still owns after 006/007: the updated_at trigger fn,
@@ -448,16 +449,25 @@ describe("schema constraints enforce", () => {
     );
   });
 
-  test("the me-cli OAuth client is seeded (public PKCE client, consent skipped)", async () => {
+  test("the me-cli OAuth client is seeded (public PKCE client, consent required)", async () => {
     const [cli] = await sql.unsafe(
-      `select public, type, require_pkce, skip_consent
-         from ${canonical.schema}.oauth_client where client_id = 'me-cli'`,
+      `select
+         public
+       , type
+       , token_endpoint_auth_method
+       , application_type
+       , require_pkce
+       , skip_consent
+       from ${canonical.schema}.oauth_client
+       where client_id = 'me-cli'`,
     );
     expect(cli).toBeDefined();
     expect(cli?.public).toBe(true);
     expect(cli?.type).toBe("native");
+    expect(cli?.token_endpoint_auth_method).toBe("none");
+    expect(cli?.application_type).toBe("native");
     expect(cli?.require_pkce).toBe(true);
-    expect(cli?.skip_consent).toBe(true);
+    expect(cli?.skip_consent).toBe(false);
   });
 
   test("oauth_access_token.token is unique and client_id FKs oauth_client", async () => {
@@ -597,6 +607,47 @@ describe("cascade + trigger behavior", () => {
 });
 
 describe("migration behavior", () => {
+  test("upgrades 0.0.3 to require CLI consent without changing other clients", async () => {
+    await withTestAuth(sql, {}, async (auth) => {
+      const s = auth.schema;
+      // Restore the data and ledger state from before migration 009.
+      await sql.unsafe(
+        `update ${s}.oauth_client
+         set skip_consent = true
+         where client_id = 'me-cli'`,
+      );
+      await sql.unsafe(
+        `insert into ${s}.oauth_client (client_id, skip_consent, redirect_uris)
+         values ('other-client', true, '[]'::jsonb)`,
+      );
+      await sql.unsafe(
+        `delete from ${s}.migration where name = '009_cli_consent'`,
+      );
+      await sql.unsafe(`update ${s}.version set version = '0.0.3'`);
+      expect(await appliedMigrations(sql, s)).toEqual(
+        EXPECTED_MIGRATIONS.slice(0, -1),
+      );
+
+      await migrateAuth(sql, { schema: s });
+
+      const [cli] = await sql.unsafe(
+        `select require_pkce, token_endpoint_auth_method, application_type, skip_consent
+         from ${s}.oauth_client
+         where client_id = 'me-cli'`,
+      );
+      expect(cli?.skip_consent).toBe(false);
+      expect(cli?.require_pkce).toBe(true);
+      expect(cli?.token_endpoint_auth_method).toBe("none");
+      expect(cli?.application_type).toBe("native");
+      const [other] = await sql.unsafe(
+        `select skip_consent from ${s}.oauth_client where client_id = 'other-client'`,
+      );
+      expect(other?.skip_consent).toBe(true);
+      expect(await appliedMigrations(sql, s)).toEqual(EXPECTED_MIGRATIONS);
+      expect(await getSchemaVersion(sql, s)).toBe(AUTH_SCHEMA_VERSION);
+    });
+  });
+
   test("is idempotent: re-running changes no migration rows or version", async () => {
     await withTestAuth(sql, {}, async (auth) => {
       const before = await appliedMigrations(sql, auth.schema);

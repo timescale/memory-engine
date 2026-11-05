@@ -18,13 +18,19 @@ me login --device [space]
 
 Authenticates with Memory Engine and stores your credentials. There are two flows:
 
-- **Default (browser):** an OAuth 2.1 authorization-code flow with PKCE over a `127.0.0.1` loopback redirect (RFC 8252). The CLI opens your browser to the sign-in page, you choose a provider (Google or GitHub), and the browser redirects back to the CLI, which exchanges the code for an access + refresh token pair. This needs a browser **on the same machine** as the CLI. (See [Switching accounts](#switching-accounts) for `--switch`.)
+- **Default (browser):** an OAuth 2.1 authorization-code flow with PKCE over a `127.0.0.1` loopback redirect (RFC 8252). The CLI opens your browser. Sign in through Google or GitHub if needed, check the account and callback address, then select **Authorize CLI**. Approval is required for each new login, even when the browser is already signed in. The browser returns to the CLI, which exchanges the code for an access and refresh token pair. This needs a browser **on the same machine** as the CLI. (See [Switching accounts](#switching-accounts) for `--switch`.)
 
 - **Device (`--device`):** the OAuth 2.0 Device Authorization Grant (RFC 8628), for **headless** environments — an agent harness in a sandbox, a remote SSH session, a container — where the loopback flow can't reach a local browser. The CLI prints a short URL and a code; you open the URL on **any** device, sign in, and enter the code, and the CLI polls until you approve. This yields a rolling **session token** (valid for 7 days, refreshed as you keep using the CLI) rather than an access/refresh pair; when it lapses you simply run `me login --device` again.
 
 If you pass a `space` argument, it becomes the active space. Otherwise, if you belong to exactly one space it's selected automatically; if you belong to several, run `me space use` to pick one. The active space is carried as the `X-Me-Space` header on subsequent commands.
 
 Login also runs the same version compatibility check as `me version` before starting, so an out-of-date CLI gets a clean upgrade prompt instead of failing mid-flow.
+
+### Check the browser request
+
+The terminal displays the actual callback address, for example `http://127.0.0.1:54321/callback`. Compare the complete address, including its port, with the browser approval page. Only approve if you just started `me login` and the addresses match. If someone sent you the link, the account is wrong, or the addresses differ, select **Cancel**. Run `me login --switch` to choose another account.
+
+Approval lets the requesting program act as your account within your existing permissions. The application name does not prove that the local program is the official CLI. Refresh tokens let the program continue accessing your account after you close the browser; normal automatic refresh does not require another approval.
 
 ## Options
 
@@ -36,7 +42,7 @@ Login also runs the same version compatibility check as `me version` before star
 
 ## Switching accounts
 
-Your browser keeps its own session with the server, independent of the CLI. When that session is still valid, the sign-in page is skipped and the CLI is authorized for the account you're already signed in as — so a plain `me logout` followed by `me login` puts you right back in the same account (logout only clears the CLI's local credentials, not the browser session).
+Your browser keeps its own session with the server, independent of the CLI. When that session is still valid, the sign-in page is skipped, but the approval page still shows the account that will authorize the CLI. A plain `me logout` followed by `me login` proposes the same browser account because logout only clears the CLI's local credentials, not the browser session.
 
 To sign in as a different account (for example, switching from a personal GitHub identity to a work Google one), run:
 
