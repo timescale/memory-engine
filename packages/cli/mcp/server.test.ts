@@ -1,15 +1,20 @@
 import { afterEach, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  closeSync,
+  constants,
   existsSync,
   mkdirSync,
+  openSync,
+  readSync,
   statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { parse as yamlParse } from "yaml";
@@ -929,6 +934,86 @@ test("export requires data-file extensions and refuses non-regular files", async
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("export refuses a FIFO with a reader without sending data", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "me-mcp-fifo-")));
+  let reader: number | undefined;
+  captureRpcResult({ results: [fullMemory], total: 1, limit: 10 });
+  const { client, server } = await connect("locked", undefined, {
+    fsRoot: root,
+  });
+  try {
+    const path = join(root, "memories.json");
+    const created = spawnSync("mkfifo", [path], { timeout: 5000 });
+    expect(created.error).toBeUndefined();
+    expect(created.status).toBe(0);
+    reader = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    const result = await client.callTool({
+      name: "me_memory_export",
+      arguments: { format: "json", path, overwrite: true },
+    });
+    expect(result.isError).toBe(true);
+    expect(toolText(result)).toContain("Cannot write to a non-regular file");
+    expect(readSync(reader, Buffer.alloc(1), 0, 1, null)).toBe(0);
+    expect(statSync(path).isFIFO()).toBe(true);
+  } finally {
+    if (reader !== undefined) closeSync(reader);
+    await Promise.all([client.close(), server.close()]);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+const fifoNoReaderTestName = "export to a FIFO without a reader fails promptly";
+
+test(fifoNoReaderTestName, async () => {
+  const childPath = process.env.ME_MCP_TEST_FIFO_PATH;
+  if (childPath) {
+    captureRpcResult({ results: [fullMemory], total: 1, limit: 10 });
+    const { client, server } = await connect("locked", undefined, {
+      fsRoot: dirname(childPath),
+    });
+    try {
+      const result = await client.callTool({
+        name: "me_memory_export",
+        arguments: { format: "json", path: childPath, overwrite: true },
+      });
+      expect(result.isError).toBe(true);
+      expect(toolText(result)).toContain("ENXIO");
+    } finally {
+      await Promise.all([client.close(), server.close()]);
+    }
+    return;
+  }
+
+  const root = await realpath(await mkdtemp(join(tmpdir(), "me-mcp-fifo-")));
+  try {
+    const path = join(root, "memories.json");
+    const created = spawnSync("mkfifo", [path], { timeout: 5000 });
+    expect(created.error).toBeUndefined();
+    expect(created.status).toBe(0);
+    // Kill the child if a synchronous open blocks its event loop.
+    const child = spawnSync(
+      process.execPath,
+      [
+        "test",
+        import.meta.path,
+        "--test-name-pattern",
+        `^${fifoNoReaderTestName}$`,
+      ],
+      {
+        env: { ...process.env, ME_MCP_TEST_FIFO_PATH: path },
+        encoding: "utf-8",
+        timeout: 5000,
+        killSignal: "SIGKILL",
+      },
+    );
+    expect(child.error).toBeUndefined();
+    expect(child.status, child.stdout + child.stderr).toBe(0);
+    expect(statSync(path).isFIFO()).toBe(true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15000);
 
 test("export creates non-executable data files and overwrites regular data files", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "me-mcp-data-")));
