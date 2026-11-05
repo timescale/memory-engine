@@ -129,13 +129,14 @@ export function createStaticHandler(opts: {
     cacheControl: string,
     status = 200,
   ): Response {
+    const consentPage = new URL(request.url).pathname === "/consent";
     const headers: Record<string, string> = {
       "Content-Type": contentType,
-      "Cache-Control": cacheControl,
+      "Cache-Control": consentPage ? "no-store" : cacheControl,
       "X-Content-Type-Options": "nosniff",
       "Content-Security-Policy": CSP,
       "X-Frame-Options": "DENY",
-      "Referrer-Policy": "same-origin",
+      "Referrer-Policy": consentPage ? "no-referrer" : "same-origin",
     };
     // HEAD: same headers, no body.
     if (request.method === "HEAD")

@@ -205,7 +205,36 @@ async function exchangeCliCode(
     new Request(callback.href, { headers: { Cookie: cookies(signedIn) } }),
   );
   expect(authorized.status).toBe(302);
-  const loopback = new URL(authorized.headers.get("Location") ?? "");
+  const consentURL = new URL(authorized.headers.get("Location") ?? "", BASE);
+  expect(consentURL.origin + consentURL.pathname).toBe(`${BASE}/consent`);
+  expect(consentURL.searchParams.get("sig")).toBeTruthy();
+  expect(consentURL.searchParams.get("prompt")?.split(/\s+/)).toContain(
+    "consent",
+  );
+  expect(consentURL.searchParams.has("code")).toBe(false);
+  const session = await auth.api.getSession({
+    headers: new Headers({ Cookie: cookies(signedIn) }),
+  });
+  expect(session?.user.id).toBeTruthy();
+  const approved = await auth.handler(
+    new Request(`${AUTH}/oauth2/consent`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: BASE,
+        Cookie: cookies(signedIn),
+        "X-Me-Consent-Account": session?.user.id ?? "",
+      },
+      body: JSON.stringify({ accept: true, oauth_query: consentURL.search }),
+    }),
+  );
+  expect(approved.status).toBe(200);
+  const approval = (await approved.json()) as {
+    redirect: boolean;
+    url: string;
+  };
+  expect(approval.redirect).toBe(true);
+  const loopback = new URL(approval.url);
   expect(loopback.origin + loopback.pathname).toBe(flow.redirectUri);
   expect(loopback.searchParams.get("state")).toBe(flow.state);
   expect(loopback.searchParams.get("code")).toBeTruthy();
@@ -313,8 +342,16 @@ describe("signup restriction through the OAuth callback", () => {
     );
 
     // Authorize also accepts unsigned requests; exercise the signed-query verifier.
-    const checked = await restricted.auth.api.oauth2Consent({
+    const session = await restricted.auth.api.getSession({
       headers: new Headers({ Cookie: cookies(signedIn) }),
+    });
+    expect(session?.user.id).toBeTruthy();
+    const checked = await restricted.auth.api.oauth2Consent({
+      headers: new Headers({
+        Cookie: cookies(signedIn),
+        Origin: BASE,
+        "X-Me-Consent-Account": session?.user.id ?? "",
+      }),
       body: { accept: false, oauth_query: search },
     });
     expect(new URL(checked.url).searchParams.get("error")).toBe(

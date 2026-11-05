@@ -44,13 +44,14 @@ import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { bearer, deviceAuthorization, jwt } from "better-auth/plugins";
 import { Pool } from "pg";
+import { cliConsentBefore, cliConsentPage } from "./cli-consent";
 
 /** Path prefix better-auth mounts its routes under (preserves our current URLs). */
 export const AUTH_BASE_PATH = "/api/v1/auth";
 
 /**
  * client_id of the first-party `me` CLI — a trusted public OAuth client
- * (PKCE + loopback redirect, consent skipped). Registered as a row in the
+ * (PKCE + loopback redirect, explicit approval). Registered as a row in the
  * oauth client table by the migration; listed here so the provider treats it as
  * an immutable trusted client and so the CLI can reference it.
  */
@@ -156,6 +157,9 @@ export function createBetterAuth(opts: BetterAuthOptions) {
     basePath: AUTH_BASE_PATH,
     secret: opts.secret,
     trustedOrigins: opts.trustedOrigins,
+    hooks: {
+      before: cliConsentBefore(CLI_CLIENT_ID, AUTH_BASE_PATH, opts.secret),
+    },
     rateLimit: {
       enabled: opts.rateLimitEnabled,
       customRules: {
@@ -239,6 +243,7 @@ export function createBetterAuth(opts: BetterAuthOptions) {
         : {}),
     },
     plugins: [
+      cliConsentPage(CLI_CLIENT_ID, opts.secret),
       // Signs OIDC id tokens + exposes JWKS; private keys stored encrypted with
       // `secret`. Opaque access tokens are validated by introspection, not JWKS.
       // disableSettingJwtHeader: recommended alongside an OAuth provider (session
@@ -259,8 +264,8 @@ export function createBetterAuth(opts: BetterAuthOptions) {
       }),
       // OAuth 2.1 authorization server. Access/refresh tokens default to
       // `storeTokens: "hashed"` (sha256 at rest, hash-on-lookup). The CLI is a
-      // trusted public client; cachedTrustedClients makes it immutable via the
-      // CRUD/registration endpoints and lets it skip the consent screen. The
+      // public client. cachedTrustedClients prevents client-management changes.
+      // The before hook requires approval on each new CLI authorization. The
       // tables are mapped to snake_case (single-word fields keep their name).
       oauthProvider({
         loginPage: `${opts.baseURL}/login`,
@@ -422,6 +427,8 @@ export function createBetterAuth(opts: BetterAuthOptions) {
       bearer({ requireSignature: true }),
     ],
     advanced: {
+      // Keep origin checks enabled in tests and production.
+      disableOriginCheck: false,
       // Let the DB generate ids (`default uuidv7()`), read back via RETURNING.
       database: { generateId: false },
       cookiePrefix: "me",

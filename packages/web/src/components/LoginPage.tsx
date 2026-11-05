@@ -1,17 +1,9 @@
 /**
- * OAuth-provider login page — the `loginPage` the better-auth authorize endpoint
- * redirects to.
+ * Sign the user in, then return to the OAuth authorization endpoint.
+ * The server requires explicit CLI approval after sign-in.
  *
- * `me login` opens `/api/v1/auth/oauth2/authorize`; with no session, better-auth
- * 302s the browser here with the *signed* authorize params on the query string.
- * We sign the user in, then send them back to the authorize endpoint — better-auth
- * sees the new session and (me-cli is a trusted PKCE client with consent skipped)
- * issues the authorization code straight to the CLI's loopback redirect.
- *
- * The one subtlety is the callbackURL — see `buildAuthorizeCallbackURL`: a normal
- * login returns the signed query verbatim, while a `me login --switch` login
- * (which arrives here with `prompt=login`) rebuilds a clean request without
- * `prompt` to avoid an authorize→/login redirect loop.
+ * Account switching rebuilds the request without the satisfied login prompt.
+ * The server adds the consent requirement to this rebuilt request.
  */
 import { buildAuthorizeCallbackURL } from "../lib/oauth-callback.ts";
 import { clearSignInError } from "../lib/sign-in-error.ts";

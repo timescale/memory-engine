@@ -52,6 +52,40 @@ describe("successPage", () => {
 });
 
 describe("runLoopbackAuth", () => {
+  test("reports the actual bound redirect URI before browser launch", async () => {
+    const events: string[] = [];
+    let boundUri = "";
+    let reportedUrl = "";
+    let reportedUri = "";
+    let openedUrl = "";
+    const callbackUrl = await runLoopbackAuth({
+      authorizeUrl: (uri) => {
+        boundUri = uri;
+        return `https://as.example/authorize?redirect_uri=${encodeURIComponent(uri)}`;
+      },
+      onAuthorizeUrl: (url, uri) => {
+        events.push("reported");
+        reportedUrl = url;
+        reportedUri = uri;
+      },
+      openBrowser: async (url) => {
+        events.push("opened");
+        openedUrl = url;
+        await fetch(`${boundUri}?code=abc&state=xyz`);
+      },
+    });
+
+    expect(events).toEqual(["reported", "opened"]);
+    expect(reportedUri).toBe(boundUri);
+    expect(reportedUri).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/);
+    expect(Number(new URL(reportedUri).port)).toBeGreaterThan(0);
+    expect(new URL(callbackUrl).origin).toBe(new URL(reportedUri).origin);
+    expect(reportedUrl).toBe(openedUrl);
+    expect(new URL(openedUrl).searchParams.get("redirect_uri")).toBe(
+      reportedUri,
+    );
+  });
+
   test("resolves with the full callback URL on a successful redirect", async () => {
     let redirectUri = "";
     const callbackUrl = await runLoopbackAuth({

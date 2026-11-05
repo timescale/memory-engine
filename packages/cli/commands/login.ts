@@ -341,8 +341,12 @@ async function authorizeViaLoopback(p: {
       // The web UI is served at the server origin; link the user there from the
       // success page (their browser already has a session cookie there).
       uiUrl: p.server,
-      onAuthorizeUrl: (url) => {
+      onAuthorizeUrl: (url, redirectUri) => {
         if (p.fmt === "text") {
+          clack.note(
+            `${redirectUri}\n\nCompare this callback URL, including the port, with the browser approval page.\nApprove only if they match and you started this login.`,
+            "Verify the callback URL before approving",
+          );
           clack.note(
             url,
             p.openBrowser
