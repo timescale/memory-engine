@@ -30,6 +30,8 @@ Login also runs the same version compatibility check as `me version` before star
 
 The terminal displays the actual callback address, for example `http://127.0.0.1:54321/callback`. Compare the complete address, including its port, with the browser approval page. Only approve if you just started `me login` and the addresses match. If someone sent you the link, the account is wrong, or the addresses differ, select **Cancel**. Run `me login --switch` to choose another account.
 
+With `--json` or `--yaml`, the CLI writes a JSON record containing `authorization_url` and `redirect_uri` to stderr before opening the browser. Stdout remains reserved for the final result. With `--no-browser`, open `authorization_url` yourself and compare the browser callback address with `redirect_uri`.
+
 Approval lets the requesting program act as your account within your existing permissions. The application name does not prove that the local program is the official CLI. Refresh tokens let the program continue accessing your account after you close the browser; normal automatic refresh does not require another approval.
 
 ## Options

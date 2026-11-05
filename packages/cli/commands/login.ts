@@ -354,6 +354,14 @@ async function authorizeViaLoopback(p: {
               : "Open this URL in a browser on this machine to sign in:",
           );
           spin?.start("Waiting for authorization...");
+        } else {
+          // Send authorization details to stderr. Keep stdout for the result.
+          process.stderr.write(
+            `${JSON.stringify({
+              authorization_url: url,
+              redirect_uri: redirectUri,
+            })}\n`,
+          );
         }
       },
     });

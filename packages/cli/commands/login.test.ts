@@ -45,6 +45,7 @@ describe("loopback callback verification output", () => {
         });
         const note = spyOn(clack, "note").mockImplementation(() => {});
         const stdout = spyOn(process.stdout, "write").mockReturnValue(true);
+        const stderr = spyOn(process.stderr, "write").mockReturnValue(true);
         const run = spyOn(loopback, "runLoopbackAuth").mockImplementation(
           async (opts) => {
             opts.onAuthorizeUrl?.(authorizeUrl, redirectUri);
@@ -74,9 +75,17 @@ describe("loopback callback verification output", () => {
           } else {
             expect(note).not.toHaveBeenCalled();
             expect(stdout).not.toHaveBeenCalled();
+            expect(stderr).toHaveBeenCalledTimes(1);
+            expect(stderr).toHaveBeenCalledWith(
+              `${JSON.stringify({
+                authorization_url: authorizeUrl,
+                redirect_uri: redirectUri,
+              })}\n`,
+            );
           }
         } finally {
           run.mockRestore();
+          stderr.mockRestore();
           stdout.mockRestore();
           note.mockRestore();
           version.mockRestore();
