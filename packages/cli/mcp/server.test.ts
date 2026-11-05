@@ -1,5 +1,12 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -838,6 +845,130 @@ test("export and import keep file paths inside the working directory", async () 
     await Promise.all([client.close(), server.close()]);
     await rm(root, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("export refuses executable files without changing contents or permissions", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "me-mcp-exec-")));
+  captureRpcResult({ results: [fullMemory], total: 1, limit: 10 });
+  const { client, server } = await connect("locked", undefined, {
+    fsRoot: root,
+  });
+  try {
+    for (const format of ["json", "yaml", "md"]) {
+      for (const mode of [0o601, 0o610, 0o700, 0o755]) {
+        const path = join(root, `existing.${format}`);
+        writeFileSync(path, "original content");
+        chmodSync(path, mode);
+        const result = await client.callTool({
+          name: "me_memory_export",
+          arguments: { format, path, overwrite: true },
+        });
+        expect(result.isError).toBe(true);
+        expect(toolText(result)).toContain("executable");
+        expect(await readFile(path, "utf-8")).toBe("original content");
+        expect(statSync(path).mode & 0o777).toBe(mode);
+      }
+    }
+
+    const path = join(root, "markdown", "share", "design", "projection.md");
+    mkdirSync(join(root, "markdown", "share", "design"), { recursive: true });
+    writeFileSync(path, "original content", { mode: 0o755 });
+    const result = await client.callTool({
+      name: "me_memory_export",
+      arguments: { format: "md", path: "markdown", overwrite: true },
+    });
+    expect(result.isError).toBe(true);
+    expect(toolText(result)).toContain("executable");
+    expect(await readFile(path, "utf-8")).toBe("original content");
+    expect(statSync(path).mode & 0o777).toBe(0o755);
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("export requires data-file extensions and refuses non-regular files", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "me-mcp-types-")));
+  captureRpcResult({ results: [fullMemory], total: 1, limit: 10 });
+  const { client, server } = await connect("locked", undefined, {
+    fsRoot: root,
+  });
+  try {
+    for (const format of ["json", "yaml", "md"]) {
+      for (const name of ["bun", "script.sh", "script.ts"]) {
+        const path = join(root, name);
+        writeFileSync(path, "original content");
+        const result = await client.callTool({
+          name: "me_memory_export",
+          arguments: { format, path, overwrite: true },
+        });
+        expect(result.isError).toBe(true);
+        expect(toolText(result)).toContain("Unsupported file type");
+        expect(await readFile(path, "utf-8")).toBe("original content");
+      }
+    }
+    const newPath = join(root, "new.sh");
+    const unsupported = await client.callTool({
+      name: "me_memory_export",
+      arguments: { format: "json", path: newPath },
+    });
+    expect(unsupported.isError).toBe(true);
+    expect(existsSync(newPath)).toBe(false);
+
+    const directory = join(root, "directory.json");
+    mkdirSync(directory);
+    const nonRegular = await client.callTool({
+      name: "me_memory_export",
+      arguments: { format: "json", path: directory, overwrite: true },
+    });
+    expect(nonRegular.isError).toBe(true);
+    expect(statSync(directory).isDirectory()).toBe(true);
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("export creates non-executable data files and overwrites regular data files", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "me-mcp-data-")));
+  captureRpcResult({ results: [fullMemory], total: 1, limit: 10 });
+  const { client, server } = await connect("locked", undefined, {
+    fsRoot: root,
+  });
+  try {
+    for (const [format, name] of [
+      ["json", "memories.json"],
+      ["yaml", "memories.yaml"],
+      ["yaml", "memories.yml"],
+      ["md", "markdown"],
+    ] as const) {
+      const result = await client.callTool({
+        name: "me_memory_export",
+        arguments: { format, path: name },
+      });
+      expect(result.isError).toBeFalsy();
+      const path = join(
+        root,
+        name,
+        ...(format === "md" ? ["share", "design", "projection.md"] : []),
+      );
+      const content = await readFile(path, "utf-8");
+      expect(content).toContain(fullMemory.content);
+      expect(statSync(path).mode & 0o111).toBe(0);
+      writeFileSync(path, "original content");
+      chmodSync(path, 0o600);
+      const replaced = await client.callTool({
+        name: "me_memory_export",
+        arguments: { format, path, overwrite: true },
+      });
+      expect(replaced.isError).toBeFalsy();
+      expect(await readFile(path, "utf-8")).toBe(content);
+      expect(statSync(path).mode & 0o777).toBe(0o600);
+    }
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+    await rm(root, { recursive: true, force: true });
   }
 });
 
