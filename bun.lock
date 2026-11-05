@@ -23,7 +23,7 @@
     },
     "packages/cli": {
       "name": "@memory.build/cli",
-      "version": "0.9.1",
+      "version": "0.9.2",
       "bin": {
         "me": "./index.ts",
       },
@@ -43,7 +43,7 @@
     },
     "packages/client": {
       "name": "@memory.build/client",
-      "version": "0.9.1",
+      "version": "0.9.2",
       "dependencies": {
         "@memory.build/protocol": "workspace:*",
       },
@@ -116,7 +116,7 @@
     },
     "packages/protocol": {
       "name": "@memory.build/protocol",
-      "version": "0.9.1",
+      "version": "0.9.2",
       "dependencies": {
         "zod": "^4.0.0",
       },
