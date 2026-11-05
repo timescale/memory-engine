@@ -79,6 +79,15 @@ harness project directory, return successfully when capture is disabled or
 fails, and import through the normal idempotent session-import path. Capture must
 not interrupt an interactive coding session.
 
+MCP file tools confine paths to their working directory and refuse dotfiles and
+dot-directories. Export file targets must end in `.md`, `.json`, `.yaml`, or
+`.yml`. New files use mode `0644`, subject to the process umask. Overwrite requires
+explicit `overwrite: true` and accepts only non-executable regular files. The
+writer opens the target without truncation and checks the file descriptor before
+it truncates or writes. It uses nonblocking, no-follow flags to avoid blocking on
+special files or following a leaf symlink inserted after path resolution. Markdown
+directory exports apply these checks to each generated file.
+
 ## Credentials and boundaries
 
 Harnesses run as the credential they actually receive. There is no agent

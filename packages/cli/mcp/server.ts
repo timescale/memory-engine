@@ -6,15 +6,28 @@
  */
 
 import {
+  closeSync,
+  constants,
   existsSync,
+  fstatSync,
+  ftruncateSync,
   lstatSync,
   mkdirSync,
+  openSync,
   realpathSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  extname,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { SHARE_NAMESPACE } from "@memory.build/protocol";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -141,14 +154,37 @@ export function localPath(root: string, raw: string): string {
   return real;
 }
 
-/** Write a file, refusing to replace an existing one unless `overwrite`. */
+/** Write a data file. Refuse executable files and non-regular files. */
 function writeLocalFile(path: string, content: string, overwrite: boolean) {
+  if (
+    ![".md", ".json", ".yaml", ".yml"].includes(extname(path).toLowerCase())
+  ) {
+    throw new Error(
+      `Unsupported file type: ${path}. Use .md, .json, .yaml, or .yml.`,
+    );
+  }
   mkdirSync(dirname(path), { recursive: true });
+  let fd: number | undefined;
   try {
-    writeFileSync(path, content, {
-      encoding: "utf-8",
-      flag: overwrite ? "w" : "wx",
-    });
+    // Open without truncation. Check the opened file before changing it.
+    fd = openSync(
+      path,
+      constants.O_WRONLY |
+        constants.O_CREAT |
+        constants.O_NOFOLLOW |
+        constants.O_NONBLOCK |
+        (overwrite ? 0 : constants.O_EXCL),
+      0o644,
+    );
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) {
+      throw new Error(`Cannot write to a non-regular file: ${path}`);
+    }
+    if ((stat.mode & 0o111) !== 0) {
+      throw new Error(`Cannot overwrite an executable file: ${path}`);
+    }
+    ftruncateSync(fd, 0);
+    writeFileSync(fd, content, { encoding: "utf-8" });
   } catch (error) {
     if ((error as { code?: string }).code === "EEXIST") {
       throw new Error(
@@ -156,6 +192,8 @@ function writeLocalFile(path: string, content: string, overwrite: boolean) {
       );
     }
     throw error;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 
@@ -1570,14 +1608,14 @@ Docs: ${docUrl("me_memory_export")}`,
             .optional()
             .nullable()
             .describe(
-              "File or directory path to write to, inside the MCP server's working directory (relative paths resolve from there). For md format, use a directory path to write one .md file per memory. Omit or null to return content inline.",
+              "File or directory path to write to, inside the MCP server's working directory (relative paths resolve from there). File targets must end in .md, .json, .yaml, or .yml. For md format, use a directory path to write one .md file per memory. Omit or null to return content inline.",
             ),
           overwrite: z
             .boolean()
             .optional()
             .nullable()
             .describe(
-              "Replace files that already exist at path. Default false: an existing file is left alone and the call fails.",
+              "Replace non-executable regular files that already exist at path. Default false: an existing file is left alone and the call fails.",
             ),
         },
         runtime,
