@@ -4,6 +4,23 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.9.5 (server)
+
+Server `server/v0.9.5` · Client unchanged (`v0.9.2`).
+
+### Fixed
+- **Request telemetry no longer records invite credentials.** Logged paths
+  redact invite tokens, including percent-encoded forms. Segments that cannot be
+  percent-decoded are redacted in full rather than recorded unchanged.
+- Logged URLs omit query strings and fragments, which can carry OAuth codes,
+  state, or callback links. The original request remains unchanged for routing,
+  sign-in, and invite redemption.
+- Existing telemetry is not rewritten and exposed invites are not revoked by
+  this release. Check previously exposed invites and revoke any still valid.
+
+### Compatibility and database
+- No client release, compatibility-minimum changes, or new schema migrations.
+
 ## 0.9.2 (client) / 0.9.4 (server)
 
 Server `server/v0.9.4` · Client `v0.9.2`.
