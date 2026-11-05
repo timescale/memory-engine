@@ -75,6 +75,22 @@ describe("httpRequestTelemetryAttributes", () => {
     });
   });
 
+  test.each([
+    "%",
+    "%FF",
+  ])("redacts an encoded invite token followed by malformed escape %s", (suffix) => {
+    const url = `https://example.test/elsewhere/%69nv.FAKEtestTOKENvalue123${suffix}`;
+    const request = new Request(url);
+    const attributes = httpRequestTelemetryAttributes(request);
+
+    expect(attributes).toEqual({
+      "http.method": "GET",
+      "http.url": "https://example.test/elsewhere/[redacted]",
+      "http.path": "/elsewhere/[redacted]",
+    });
+    expect(request.url).toBe(url);
+  });
+
   test("drops query strings that may carry one-time values", () => {
     const attributes = httpRequestTelemetryAttributes(
       new Request(

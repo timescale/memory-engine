@@ -162,11 +162,11 @@ function validatedMode(request: Request): string | undefined {
 
 const REDACTED = "[redacted]";
 
-function decodedSegment(segment: string): string {
+function decodedSegment(segment: string): string | undefined {
   try {
     return decodeURIComponent(segment);
   } catch {
-    return segment;
+    return undefined;
   }
 }
 
@@ -183,7 +183,8 @@ export function redactTelemetryPath(path: string): string {
   let afterInvite = false;
   return segments
     .map((segment, index) => {
-      const decoded = decodedSegment(segment).toLowerCase();
+      const decoded = decodedSegment(segment)?.toLowerCase();
+      if (decoded === undefined) return REDACTED;
       if (afterInvite && segment !== "") return REDACTED;
       if (/(^|\/)inv\./.test(decoded)) return REDACTED;
       if (index === 1 && decoded.startsWith("invite/")) return REDACTED;
