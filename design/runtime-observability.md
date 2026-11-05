@@ -191,7 +191,11 @@ HTTP completion labels use a fixed vocabulary: known RPC/token routes, auth/API
 catch-all buckets, or `web`; standard methods or `OTHER`; numeric HTTP status;
 `success`, `client_error`, `server_error`, or `exception`. No raw URL, RPC method,
 space, principal, API key, query, or result identifier becomes a metric label.
-Existing trace URL/identity attributes are unchanged.
+HTTP spans record the URL origin and sanitized path in `http.url`, and the
+sanitized path in `http.path`. Invite tokens and path segments that cannot be
+percent-decoded are redacted. Query strings and fragments are omitted. This
+sanitization does not modify the request used for routing or authentication.
+Trace identity attributes are unchanged.
 
 Response helpers stringify exactly once and reuse that string for the response.
 `Buffer.byteLength` counts UTF-8 bytes without constructing another payload
