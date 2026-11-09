@@ -79,6 +79,33 @@ export async function authenticateUser(
     },
   });
 
+  async function admitUserSession(
+    user: { id: string; email: string; name: string; emailVerified: boolean },
+    mode: "oauth" | "session bearer" | "cookie",
+  ): Promise<UserAuthResult> {
+    const principal = await core.getPrincipal(user.id);
+    if (principal?.suspendedAt) {
+      debug("user auth failed: principal is suspended", { userId: user.id });
+      return { ok: false, error: principalSuspended() };
+    }
+    debug(`user auth succeeded (${mode})`, { userId: user.id });
+    return {
+      ok: true,
+      context: {
+        type: "user",
+        kind: "u",
+        userId: user.id,
+        email: user.email,
+        name: user.name,
+        emailVerified: user.emailVerified,
+        viaApiKey: false,
+        apiKeyId: null,
+        apiKeyRestricted: false,
+        provisioned: principal !== null && principal !== undefined,
+      },
+    };
+  }
+
   async function resolvePrincipal(): Promise<UserAuthResult> {
     const bearer = extractBearerToken(request);
     if (bearer) {
@@ -155,29 +182,15 @@ export async function authenticateUser(
       // OAuth access token (CLI / MCP). One lookup yields user + identity.
       const verified = await verifyOAuthToken(bearer);
       if (verified) {
-        const principal = await core.getPrincipal(verified.userId);
-        if (principal?.suspendedAt) {
-          debug("user auth failed: principal is suspended", {
-            userId: verified.userId,
-          });
-          return { ok: false, error: principalSuspended() };
-        }
-        debug("user auth succeeded (oauth)", { userId: verified.userId });
-        return {
-          ok: true,
-          context: {
-            type: "user",
-            kind: "u",
-            userId: verified.userId,
+        return admitUserSession(
+          {
+            id: verified.userId,
             email: verified.email,
             name: verified.name,
             emailVerified: verified.emailVerified,
-            viaApiKey: false,
-            apiKeyId: null,
-            apiKeyRestricted: false,
-            provisioned: principal !== null && principal !== undefined,
           },
-        };
+          "oauth",
+        );
       }
 
       // Not an OAuth token — try a signed better-auth session token presented as
@@ -199,31 +212,7 @@ export async function authenticateUser(
           error: unauthorized("Invalid or expired token"),
         };
       }
-      const bearerUser = bearerSession.user;
-      const bearerPrincipal = await core.getPrincipal(bearerUser.id);
-      if (bearerPrincipal?.suspendedAt) {
-        debug("user auth failed: principal is suspended", {
-          userId: bearerUser.id,
-        });
-        return { ok: false, error: principalSuspended() };
-      }
-      debug("user auth succeeded (session bearer)", { userId: bearerUser.id });
-      return {
-        ok: true,
-        context: {
-          type: "user",
-          kind: "u",
-          userId: bearerUser.id,
-          email: bearerUser.email,
-          name: bearerUser.name,
-          emailVerified: bearerUser.emailVerified,
-          viaApiKey: false,
-          apiKeyId: null,
-          apiKeyRestricted: false,
-          provisioned:
-            bearerPrincipal !== null && bearerPrincipal !== undefined,
-        },
-      };
+      return admitUserSession(bearerSession.user, "session bearer");
     }
 
     // Browser cookie session. CSRF gates the ambient cookie credential.
@@ -247,27 +236,6 @@ export async function authenticateUser(
       debug("user auth failed: missing or invalid session");
       return { ok: false, error: unauthorized("Invalid or expired session") };
     }
-    const { user } = session;
-    const cookiePrincipal = await core.getPrincipal(user.id);
-    if (cookiePrincipal?.suspendedAt) {
-      debug("user auth failed: principal is suspended", { userId: user.id });
-      return { ok: false, error: principalSuspended() };
-    }
-    debug("user auth succeeded (cookie)", { userId: user.id });
-    return {
-      ok: true,
-      context: {
-        type: "user",
-        kind: "u",
-        userId: user.id,
-        email: user.email,
-        name: user.name,
-        emailVerified: user.emailVerified,
-        viaApiKey: false,
-        apiKeyId: null,
-        apiKeyRestricted: false,
-        provisioned: cookiePrincipal !== null && cookiePrincipal !== undefined,
-      },
-    };
+    return admitUserSession(session.user, "cookie");
   }
 }
