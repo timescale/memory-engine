@@ -16,12 +16,13 @@ import type {
   GetUserEmailVerified,
   VerifyOAuthAccessToken,
 } from "../auth/betterauth";
-import { error, forbidden, unauthorized } from "../util/response";
+import { forbidden, unauthorized } from "../util/response";
 import { recordApiKeyUse } from "./api-key-usage";
 import {
   bearerOnlyHeaders,
   extractBearerToken,
   passesCsrfCheck,
+  principalSuspended,
 } from "./authenticate";
 
 export interface UserAuthContext {
@@ -55,6 +56,8 @@ export interface UserAuthContext {
   apiKeyId: string | null;
   /** Whether the authenticated API key carries access declarations. */
   apiKeyRestricted: boolean;
+  /** Whether the core.principal row already exists (skips lazy provisioning check). */
+  provisioned: boolean;
 }
 
 export type UserAuthResult =
@@ -114,14 +117,7 @@ export async function authenticateUser(
             userId: validated.memberId,
             kind: validated.kind,
           });
-          return {
-            ok: false,
-            error: error(
-              "This account has been suspended.",
-              403,
-              "PRINCIPAL_SUSPENDED",
-            ),
-          };
+          return { ok: false, error: principalSuspended() };
         }
         await recordApiKeyUse(core, validated.apiKeyId);
         const isUser = validated.kind === "u";
@@ -151,6 +147,7 @@ export async function authenticateUser(
             viaApiKey: true,
             apiKeyId: validated.apiKeyId,
             apiKeyRestricted: validated.restricted,
+            provisioned: true,
           },
         };
       }
@@ -158,18 +155,12 @@ export async function authenticateUser(
       // OAuth access token (CLI / MCP). One lookup yields user + identity.
       const verified = await verifyOAuthToken(bearer);
       if (verified) {
-        if ((await core.getPrincipal(verified.userId))?.suspendedAt) {
+        const principal = await core.getPrincipal(verified.userId);
+        if (principal?.suspendedAt) {
           debug("user auth failed: principal is suspended", {
             userId: verified.userId,
           });
-          return {
-            ok: false,
-            error: error(
-              "This account has been suspended.",
-              403,
-              "PRINCIPAL_SUSPENDED",
-            ),
-          };
+          return { ok: false, error: principalSuspended() };
         }
         debug("user auth succeeded (oauth)", { userId: verified.userId });
         return {
@@ -184,6 +175,7 @@ export async function authenticateUser(
             viaApiKey: false,
             apiKeyId: null,
             apiKeyRestricted: false,
+            provisioned: principal !== null && principal !== undefined,
           },
         };
       }
@@ -208,18 +200,12 @@ export async function authenticateUser(
         };
       }
       const bearerUser = bearerSession.user;
-      if ((await core.getPrincipal(bearerUser.id))?.suspendedAt) {
+      const bearerPrincipal = await core.getPrincipal(bearerUser.id);
+      if (bearerPrincipal?.suspendedAt) {
         debug("user auth failed: principal is suspended", {
           userId: bearerUser.id,
         });
-        return {
-          ok: false,
-          error: error(
-            "This account has been suspended.",
-            403,
-            "PRINCIPAL_SUSPENDED",
-          ),
-        };
+        return { ok: false, error: principalSuspended() };
       }
       debug("user auth succeeded (session bearer)", { userId: bearerUser.id });
       return {
@@ -234,6 +220,8 @@ export async function authenticateUser(
           viaApiKey: false,
           apiKeyId: null,
           apiKeyRestricted: false,
+          provisioned:
+            bearerPrincipal !== null && bearerPrincipal !== undefined,
         },
       };
     }
@@ -260,16 +248,10 @@ export async function authenticateUser(
       return { ok: false, error: unauthorized("Invalid or expired session") };
     }
     const { user } = session;
-    if ((await core.getPrincipal(user.id))?.suspendedAt) {
+    const cookiePrincipal = await core.getPrincipal(user.id);
+    if (cookiePrincipal?.suspendedAt) {
       debug("user auth failed: principal is suspended", { userId: user.id });
-      return {
-        ok: false,
-        error: error(
-          "This account has been suspended.",
-          403,
-          "PRINCIPAL_SUSPENDED",
-        ),
-      };
+      return { ok: false, error: principalSuspended() };
     }
     debug("user auth succeeded (cookie)", { userId: user.id });
     return {
@@ -284,6 +266,7 @@ export async function authenticateUser(
         viaApiKey: false,
         apiKeyId: null,
         apiKeyRestricted: false,
+        provisioned: cookiePrincipal !== null && cookiePrincipal !== undefined,
       },
     };
   }

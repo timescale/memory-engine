@@ -269,13 +269,13 @@ describe("login gate (a verified email is required to establish a session)", () 
   test("a suspended user cannot establish a new session", async () => {
     const userId = await seedUser();
     await core.setPrincipalSuspended(userId, true, authSchema);
-    let error: unknown;
-    try {
-      await createSession(userId);
-    } catch (e) {
-      error = e;
-    }
-    expect(error).toBeDefined();
+    await expect(createSession(userId)).rejects.toMatchObject({
+      status: "FORBIDDEN",
+      body: {
+        code: "ACCOUNT_SUSPENDED",
+        message: "This account has been suspended.",
+      },
+    });
     const [row] = await sql.unsafe(
       `select count(*)::int as n from ${authSchema}.sessions where user_id = $1`,
       [userId],

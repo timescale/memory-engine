@@ -16,6 +16,13 @@
  * Header-only by design: api-key detection (`authenticate-space.ts`) must never
  * see a cookie, and cookies only ever carry a session token (never an api key).
  */
+import { error } from "../util/response";
+
+/** Standard 403 response for a suspended user or service-account principal. */
+export function principalSuspended(): Response {
+  return error("This account has been suspended.", 403, "PRINCIPAL_SUSPENDED");
+}
+
 export function extractBearerToken(request: Request): string | null {
   const authHeader = request.headers.get("Authorization");
   if (!authHeader) {
