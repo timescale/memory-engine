@@ -67,6 +67,12 @@ test("createUser + getPrincipal", async () => {
   expect(p?.id).toBe(userId);
   expect(p?.kind).toBe("u");
   expect(p?.spaceId).toBeNull();
+  expect(p?.suspendedAt).toBeNull();
+
+  expect(await db.setPrincipalSuspended(userId, true)).toBe(true);
+  expect((await db.getPrincipal(userId))?.suspendedAt).toBeInstanceOf(Date);
+  expect(await db.setPrincipalSuspended(userId, false)).toBe(true);
+  expect((await db.getPrincipal(userId))?.suspendedAt).toBeNull();
 });
 
 test("grant + buildTreeAccess returns the search_memory jsonb shape", async () => {
@@ -140,6 +146,7 @@ test("createApiKey + validateApiKey (good / wrong secret)", async () => {
   // second principal lookup.
   expect(valid?.kind).toBe("u");
   expect(valid?.name).toBe(userName);
+  expect(valid?.suspended).toBe(false);
   expect((await db.getApiKey(key.id))?.lastUsedOn).toBeNull();
 
   expect(await db.touchApiKey(key.id, "2026-07-17")).toBe(true);

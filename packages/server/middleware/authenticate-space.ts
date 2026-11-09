@@ -172,6 +172,20 @@ async function authenticateSpaceInner(
       });
       return { ok: false, error: unauthorized("Invalid credentials") };
     }
+    if (validated.suspended) {
+      debug("space auth failed: principal is suspended", {
+        principalId: validated.memberId,
+        kind: validated.kind,
+      });
+      return {
+        ok: false,
+        error: error(
+          "This account has been suspended.",
+          403,
+          "PRINCIPAL_SUSPENDED",
+        ),
+      };
+    }
     principalKind = validated.kind;
     await recordApiKeyUse(core, validated.apiKeyId);
   } else if (bearer && isLegacyApiKey(bearer)) {
@@ -200,8 +214,19 @@ async function authenticateSpaceInner(
       principalKind = "u";
       apiKeyId = null;
       apiKeyName = null;
-      principalName =
-        (await core.getPrincipal(principalId))?.name ?? principalId;
+      const principal = await core.getPrincipal(principalId);
+      if (principal?.suspendedAt) {
+        debug("space auth failed: principal is suspended", { principalId });
+        return {
+          ok: false,
+          error: error(
+            "This account has been suspended.",
+            403,
+            "PRINCIPAL_SUSPENDED",
+          ),
+        };
+      }
+      principalName = principal?.name ?? principalId;
     } else {
       // Authorization-only headers so a signed-session bearer can't fall back to
       // an ambient cookie (which would skip the CSRF gate below).
@@ -218,8 +243,19 @@ async function authenticateSpaceInner(
       principalKind = "u";
       apiKeyId = null;
       apiKeyName = null;
-      principalName =
-        (await core.getPrincipal(principalId))?.name ?? principalId;
+      const principal = await core.getPrincipal(principalId);
+      if (principal?.suspendedAt) {
+        debug("space auth failed: principal is suspended", { principalId });
+        return {
+          ok: false,
+          error: error(
+            "This account has been suspended.",
+            403,
+            "PRINCIPAL_SUSPENDED",
+          ),
+        };
+      }
+      principalName = principal?.name ?? principalId;
     }
   } else {
     // Browser cookie session. CSRF gates the ambient cookie credential.
@@ -238,7 +274,19 @@ async function authenticateSpaceInner(
     principalKind = "u";
     apiKeyId = null;
     apiKeyName = null;
-    principalName = (await core.getPrincipal(principalId))?.name ?? principalId;
+    const principal = await core.getPrincipal(principalId);
+    if (principal?.suspendedAt) {
+      debug("space auth failed: principal is suspended", { principalId });
+      return {
+        ok: false,
+        error: error(
+          "This account has been suspended.",
+          403,
+          "PRINCIPAL_SUSPENDED",
+        ),
+      };
+    }
+    principalName = principal?.name ?? principalId;
   }
 
   // 5. Endpoint admission is direct space membership (principal_space), not

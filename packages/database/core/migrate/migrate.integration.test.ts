@@ -68,6 +68,7 @@ const EXPECTED_MIGRATIONS = [
   "016_api_key_last_used_on",
   "017_scoped_api_keys",
   "018_remove_agents",
+  "019_principal_suspension",
 ];
 
 const EXPECTED_FUNCTIONS = [
@@ -91,6 +92,7 @@ const EXPECTED_FUNCTIONS = [
   "service_account_for_admin_group",
   "service_account_tree_access",
   "set_group_is_space_admin",
+  "set_principal_suspended",
   "update_updated_at",
   "user_tree_access",
 ];
@@ -3180,6 +3182,152 @@ describe("migration behavior", () => {
       // re-migrate: the guard sees the stale signature and drops + recreates it
       await migrateCore(sql, { schema: s });
       expect((await fn())?.proargnames).not.toContain("direct");
+    });
+  });
+
+  test("set_principal_suspended suspends and restores users and service accounts, rejects groups, and scrubs auth rows", async () => {
+    await withTestCore(sql, {}, async (core) => {
+      const s = core.schema;
+      const auth = `auth_test_${randomSlug()}`;
+      await sql.unsafe(`create schema ${auth}`);
+      try {
+        await sql.unsafe(`
+          create table ${auth}.users (id uuid primary key default uuidv7(), email citext not null unique);
+          create table ${auth}.sessions (id uuid primary key default uuidv7(), user_id uuid not null);
+          create table ${auth}.oauth_access_token (id text primary key, user_id uuid);
+          create table ${auth}.oauth_refresh_token (id text primary key, user_id uuid not null);
+          create table ${auth}.device_code (id text primary key, user_id uuid);
+        `);
+
+        // 1. User who is the sole admin of a space (enforce_last_admin does not block suspension).
+        const [spaceRow] = await sql.unsafe(
+          `select ${s}.create_space($1, 'Personal') as id`,
+          [randomSlug()],
+        );
+        const spaceId = spaceRow?.id as string;
+        const [uRow] = await sql.unsafe(
+          `insert into ${auth}.users (email) values ('alice@example.com') returning id`,
+        );
+        const userId = uRow?.id as string;
+        await sql.unsafe(`select ${s}.create_user($1, 'alice@example.com')`, [
+          userId,
+        ]);
+        await sql.unsafe(`select ${s}.add_principal_to_space($1, $2, true)`, [
+          spaceId,
+          userId,
+        ]);
+        await sql.unsafe(
+          `select ${s}.create_api_key($1, 'lookup_alice_123', 'hashed_secret', 'cli', null, null)`,
+          [userId],
+        );
+
+        await sql.unsafe(`insert into ${auth}.sessions (user_id) values ($1)`, [
+          userId,
+        ]);
+        await sql.unsafe(
+          `insert into ${auth}.oauth_access_token (id, user_id) values ('at1', $1)`,
+          [userId],
+        );
+        await sql.unsafe(
+          `insert into ${auth}.oauth_refresh_token (id, user_id) values ('rt1', $1)`,
+          [userId],
+        );
+        await sql.unsafe(
+          `insert into ${auth}.device_code (id, user_id) values ('dc1', $1)`,
+          [userId],
+        );
+
+        const [firstSuspend] = await sql.unsafe(
+          `select ${s}.set_principal_suspended($1, true, $2) as updated`,
+          [userId, auth],
+        );
+        expect(firstSuspend?.updated).toBe(true);
+
+        // Idempotent second call returns false (suspended_at already set).
+        const [secondSuspend] = await sql.unsafe(
+          `select ${s}.set_principal_suspended($1, true, $2) as updated`,
+          [userId, auth],
+        );
+        expect(secondSuspend?.updated).toBe(false);
+
+        const [pRow] = await sql.unsafe(
+          `select * from ${s}.get_principal($1)`,
+          [userId],
+        );
+        expect(pRow?.suspended_at).toBeInstanceOf(Date);
+
+        const [kRow] = await sql.unsafe(
+          `select * from ${s}.validate_api_key('lookup_alice_123', 'hashed_secret')`,
+        );
+        expect(kRow?.suspended).toBe(true);
+
+        // Auth credentials for the user were scrubbed.
+        for (const tbl of [
+          "sessions",
+          "oauth_access_token",
+          "oauth_refresh_token",
+          "device_code",
+        ]) {
+          const [cnt] = await sql.unsafe(
+            `select count(*)::int as n from ${auth}.${tbl} where user_id = $1`,
+            [userId],
+          );
+          expect(cnt?.n).toBe(0);
+        }
+
+        // Restore the user.
+        const [unsuspend] = await sql.unsafe(
+          `select ${s}.set_principal_suspended($1, false, $2) as updated`,
+          [userId, auth],
+        );
+        expect(unsuspend?.updated).toBe(true);
+        const [restoredKey] = await sql.unsafe(
+          `select * from ${s}.validate_api_key('lookup_alice_123', 'hashed_secret')`,
+        );
+        expect(restoredKey?.suspended).toBe(false);
+
+        // 2. Unprovisioned auth.users row is lazily provisioned into core.principal on suspend.
+        const [unprov] = await sql.unsafe(
+          `insert into ${auth}.users (email) values ('unprovisioned@example.com') returning id`,
+        );
+        const unprovId = unprov?.id as string;
+        const [unprovSuspend] = await sql.unsafe(
+          `select ${s}.set_principal_suspended($1, true, $2) as updated`,
+          [unprovId, auth],
+        );
+        expect(unprovSuspend?.updated).toBe(true);
+        const [unprovPrincipal] = await sql.unsafe(
+          `select * from ${s}.get_user_by_name('unprovisioned@example.com')`,
+        );
+        expect(unprovPrincipal?.id).toBe(unprovId);
+        expect(unprovPrincipal?.suspended_at).toBeInstanceOf(Date);
+
+        // 3. Service account suspension works; group suspension is rejected.
+        const [sa] = await sql.unsafe(
+          `select * from ${s}.create_service_account($1, 'ci-bot')`,
+          [spaceId],
+        );
+        const [saSuspend] = await sql.unsafe(
+          `select ${s}.set_principal_suspended($1, true, $2) as updated`,
+          [sa?.id, auth],
+        );
+        expect(saSuspend?.updated).toBe(true);
+
+        await expectReject(() =>
+          sql.unsafe(`select ${s}.set_principal_suspended($1, true, $2)`, [
+            sa?.admin_id,
+            auth,
+          ]),
+        );
+        await expectReject(() =>
+          sql.unsafe(
+            `update ${s}.principal set suspended_at = now() where id = $1`,
+            [sa?.admin_id],
+          ),
+        );
+      } finally {
+        await sql.unsafe(`drop schema if exists ${auth} cascade`);
+      }
     });
   });
 

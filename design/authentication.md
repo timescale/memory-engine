@@ -162,6 +162,30 @@ revoke keys, preventing a compromised key from creating a replacement. Legacy
 space-scoped API keys are rejected with a migration-specific error rather than
 silently accepting an obsolete credential format.
 
+## Principal suspension
+
+Operators can suspend or restore any user (`kind = 'u'`) or service account
+(`kind = 's'`) through `core.set_principal_suspended(_id, _suspended, _auth_schema)`.
+Groups (`kind = 'g'`) do not authenticate and cannot be suspended
+(`principal_suspended_kind_check`).
+
+Suspending a principal sets `core.principal.suspended_at` without deleting the
+principal, its space memberships, group memberships, tree grants, API keys, or
+memories. Because `principal_space` and `group_member` rows remain intact,
+suspending the sole admin of a personal space does not trip
+`enforce_last_admin()`. When suspending a human user who exists in `auth.users`
+but has not yet been lazily provisioned into `core.principal`, the function
+inserts the `core.principal` row first and scrubs the user's active rows from
+`sessions`, `oauth_access_token`, `oauth_refresh_token`, and `device_code`.
+
+Both `authenticateUser` and `authenticateSpace` reject requests from suspended
+principals with HTTP `403` (`PRINCIPAL_SUSPENDED`), before recording API-key
+usage or running space queries. `session.create.before` in `betterauth.ts`
+blocks suspended users from establishing a new browser session with
+`ACCOUNT_SUSPENDED`, which the sign-in card surfaces on `/login`. Restoring the
+principal (`_suspended = false`) clears `suspended_at`, re-enabling existing API
+keys and allowing the user to sign in again.
+
 ## Endpoint boundaries
 
 `/api/v1/user/rpc` authenticates a principal for account and cross-space

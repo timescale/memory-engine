@@ -16,7 +16,7 @@ import type {
   GetUserEmailVerified,
   VerifyOAuthAccessToken,
 } from "../auth/betterauth";
-import { forbidden, unauthorized } from "../util/response";
+import { error, forbidden, unauthorized } from "../util/response";
 import { recordApiKeyUse } from "./api-key-usage";
 import {
   bearerOnlyHeaders,
@@ -109,6 +109,20 @@ export async function authenticateUser(
             error: unauthorized("Invalid or expired token"),
           };
         }
+        if (validated.suspended) {
+          debug("user auth failed: principal is suspended", {
+            userId: validated.memberId,
+            kind: validated.kind,
+          });
+          return {
+            ok: false,
+            error: error(
+              "This account has been suspended.",
+              403,
+              "PRINCIPAL_SUSPENDED",
+            ),
+          };
+        }
         await recordApiKeyUse(core, validated.apiKeyId);
         const isUser = validated.kind === "u";
         debug("user auth succeeded (api key)", {
@@ -144,6 +158,19 @@ export async function authenticateUser(
       // OAuth access token (CLI / MCP). One lookup yields user + identity.
       const verified = await verifyOAuthToken(bearer);
       if (verified) {
+        if ((await core.getPrincipal(verified.userId))?.suspendedAt) {
+          debug("user auth failed: principal is suspended", {
+            userId: verified.userId,
+          });
+          return {
+            ok: false,
+            error: error(
+              "This account has been suspended.",
+              403,
+              "PRINCIPAL_SUSPENDED",
+            ),
+          };
+        }
         debug("user auth succeeded (oauth)", { userId: verified.userId });
         return {
           ok: true,
@@ -181,6 +208,19 @@ export async function authenticateUser(
         };
       }
       const bearerUser = bearerSession.user;
+      if ((await core.getPrincipal(bearerUser.id))?.suspendedAt) {
+        debug("user auth failed: principal is suspended", {
+          userId: bearerUser.id,
+        });
+        return {
+          ok: false,
+          error: error(
+            "This account has been suspended.",
+            403,
+            "PRINCIPAL_SUSPENDED",
+          ),
+        };
+      }
       debug("user auth succeeded (session bearer)", { userId: bearerUser.id });
       return {
         ok: true,
@@ -220,6 +260,17 @@ export async function authenticateUser(
       return { ok: false, error: unauthorized("Invalid or expired session") };
     }
     const { user } = session;
+    if ((await core.getPrincipal(user.id))?.suspendedAt) {
+      debug("user auth failed: principal is suspended", { userId: user.id });
+      return {
+        ok: false,
+        error: error(
+          "This account has been suspended.",
+          403,
+          "PRINCIPAL_SUSPENDED",
+        ),
+      };
+    }
     debug("user auth succeeded (cookie)", { userId: user.id });
     return {
       ok: true,

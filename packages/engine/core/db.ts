@@ -87,6 +87,12 @@ export interface CoreStore {
   getUserByName(name: string): Promise<Principal | null>;
   /** Rename a group or service account (never a user — its name is its identity email). */
   renamePrincipal(id: string, name: string): Promise<boolean>;
+  /** Suspend or restore a user or service-account principal. */
+  setPrincipalSuspended(
+    id: string,
+    suspended?: boolean,
+    authSchema?: string,
+  ): Promise<boolean>;
   deletePrincipal(id: string): Promise<boolean>;
 
   /** The space roster: principals with a direct (principal_space) membership. */
@@ -317,6 +323,7 @@ function mapPrincipal(row: Record<string, unknown>): Principal {
     kind: row.kind as PrincipalKind,
     name: row.name as string,
     spaceId: (row.space_id as string | null) ?? null,
+    suspendedAt: (row.suspended_at as Date | null) ?? null,
     createdAt: row.created_at as Date,
     updatedAt: (row.updated_at as Date | null) ?? null,
   };
@@ -478,6 +485,18 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         select ${sch}.rename_principal(${id}, ${name}) as ok
       `;
       return Boolean(row?.ok);
+    },
+
+    async setPrincipalSuspended(id, suspended = true, authSchema) {
+      const [row] =
+        authSchema === undefined
+          ? await sql`
+              select ${sch}.set_principal_suspended(${id}, ${suspended}) as updated
+            `
+          : await sql`
+              select ${sch}.set_principal_suspended(${id}, ${suspended}, ${authSchema}) as updated
+            `;
+      return Boolean(row?.updated);
     },
 
     async deletePrincipal(id) {
@@ -711,7 +730,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
     async validateApiKey(lookupId, secret) {
       const secretHash = hashApiKeySecret(secret);
       const [row] = await sql`
-        select member_id, api_key_id, kind, name, api_key_name, restricted
+        select member_id, api_key_id, kind, name, api_key_name, restricted, suspended
         from ${sch}.validate_api_key(${lookupId}, ${secretHash})
       `;
       if (!row) return null;
@@ -722,6 +741,7 @@ export function coreStore(sql: Sql, schema: string = CORE_SCHEMA): CoreStore {
         name: row.name as string,
         apiKeyName: row.api_key_name as string,
         restricted: Boolean(row.restricted),
+        suspended: Boolean(row.suspended),
       };
     },
 

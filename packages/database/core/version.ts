@@ -1,1 +1,1 @@
-export const CORE_SCHEMA_VERSION = "0.0.7";
+export const CORE_SCHEMA_VERSION = "0.0.8";
