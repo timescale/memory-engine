@@ -195,62 +195,46 @@ async function authenticateSpaceInner(
         "LEGACY_API_KEY",
       ),
     };
-  } else if (bearer) {
-    // A Bearer that isn't an api key is one of two opaque human credentials,
-    // tried in order: an OAuth access token (auth-code flow — CLI/MCP, hashed
-    // lookup in oauth_access_token) or a signed better-auth session token (the
-    // device flow's credential, resolved via the `bearer` plugin's getSession).
-    // Both are explicit, non-ambient credentials, so neither is subject to the
-    // cookie CSRF gate below.
-    const verified = await deps.verifyOAuthToken(bearer);
-    if (verified) {
-      principalId = verified.userId;
-      principalKind = "u";
-      apiKeyId = null;
-      apiKeyName = null;
-      const principal = await core.getPrincipal(principalId);
-      if (principal?.suspendedAt) {
-        debug("space auth failed: principal is suspended", { principalId });
-        return { ok: false, error: principalSuspended() };
+  } else {
+    if (bearer) {
+      // A Bearer that isn't an api key is one of two opaque human credentials,
+      // tried in order: an OAuth access token (auth-code flow — CLI/MCP, hashed
+      // lookup in oauth_access_token) or a signed better-auth session token (the
+      // device flow's credential, resolved via the `bearer` plugin's getSession).
+      // Both are explicit, non-ambient credentials, so neither is subject to the
+      // cookie CSRF gate below.
+      const verified = await deps.verifyOAuthToken(bearer);
+      if (verified) {
+        principalId = verified.userId;
+      } else {
+        // Authorization-only headers so a signed-session bearer can't fall back to
+        // an ambient cookie (which would skip the CSRF gate below).
+        const session = await betterAuth.api.getSession({
+          headers: bearerOnlyHeaders(request),
+        });
+        if (!session) {
+          debug(
+            "space auth failed: bearer is neither a valid OAuth token nor session",
+          );
+          return { ok: false, error: unauthorized("Invalid credentials") };
+        }
+        principalId = session.user.id;
       }
-      principalName = principal?.name ?? principalId;
     } else {
-      // Authorization-only headers so a signed-session bearer can't fall back to
-      // an ambient cookie (which would skip the CSRF gate below).
+      // Browser cookie session. CSRF gates the ambient cookie credential.
+      if (!passesCsrfCheck(request, deps.allowedOrigins)) {
+        debug("space auth failed: cookie request failed CSRF origin check");
+        return { ok: false, error: forbidden("Cross-origin request rejected") };
+      }
       const session = await betterAuth.api.getSession({
-        headers: bearerOnlyHeaders(request),
+        headers: request.headers,
       });
       if (!session) {
-        debug(
-          "space auth failed: bearer is neither a valid OAuth token nor session",
-        );
+        debug("space auth failed: invalid or expired session");
         return { ok: false, error: unauthorized("Invalid credentials") };
       }
       principalId = session.user.id;
-      principalKind = "u";
-      apiKeyId = null;
-      apiKeyName = null;
-      const principal = await core.getPrincipal(principalId);
-      if (principal?.suspendedAt) {
-        debug("space auth failed: principal is suspended", { principalId });
-        return { ok: false, error: principalSuspended() };
-      }
-      principalName = principal?.name ?? principalId;
     }
-  } else {
-    // Browser cookie session. CSRF gates the ambient cookie credential.
-    if (!passesCsrfCheck(request, deps.allowedOrigins)) {
-      debug("space auth failed: cookie request failed CSRF origin check");
-      return { ok: false, error: forbidden("Cross-origin request rejected") };
-    }
-    const session = await betterAuth.api.getSession({
-      headers: request.headers,
-    });
-    if (!session) {
-      debug("space auth failed: invalid or expired session");
-      return { ok: false, error: unauthorized("Invalid credentials") };
-    }
-    principalId = session.user.id;
     principalKind = "u";
     apiKeyId = null;
     apiKeyName = null;
