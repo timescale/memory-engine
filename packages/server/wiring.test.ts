@@ -207,6 +207,7 @@ describe("Server-Database Wiring", () => {
         email: "test@example.com",
         name: "Test User",
       };
+      const getPrincipal = mock(() => Promise.resolve({ id: identity.id }));
       const ctx = createMockContext({
         // Bearer → OAuth access-token path: return the identity directly.
         verifyOAuthToken: async () => ({
@@ -219,7 +220,7 @@ describe("Server-Database Wiring", () => {
         // Already-provisioned: getPrincipal returns truthy so lazy provisioning
         // short-circuits (no DB writes in this unit test).
         core: {
-          getPrincipal: mock(() => Promise.resolve({ id: identity.id })),
+          getPrincipal,
         } as unknown as CoreStore,
       });
       const router = createRouter(ctx);
@@ -251,6 +252,7 @@ describe("Server-Database Wiring", () => {
       };
       expect(body.jsonrpc).toBe("2.0");
       expect(body.result).toEqual(identity);
+      expect(getPrincipal).toHaveBeenCalledTimes(1);
     });
   });
 

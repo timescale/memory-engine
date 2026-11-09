@@ -204,6 +204,7 @@ export function createRouter(ctx: ServerContext): Router {
       viaApiKey,
       apiKeyId,
       apiKeyRestricted,
+      provisioned,
     } = result.context;
     // Lazy first-login provisioning: stand up the core principal the first time
     // a better-auth user reaches the user RPC (idempotent no-op thereafter). The
@@ -211,7 +212,7 @@ export function createRouter(ctx: ServerContext): Router {
     // touchpoint. NO default space is created here — it's provisioned explicitly
     // via space.ensureDefault at onboarding (so invitees who join don't get a
     // junk space). USERS only — provisioning is user+email keyed.
-    if (kind === "u" && email !== null) {
+    if (!provisioned && kind === "u" && email !== null) {
       await ensureUserProvisioned(
         db,
         core,

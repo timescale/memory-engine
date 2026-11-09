@@ -36,6 +36,7 @@ import {
   bearerOnlyHeaders,
   extractBearerToken,
   passesCsrfCheck,
+  principalSuspended,
 } from "./authenticate";
 
 export { SPACE_HEADER };
@@ -177,14 +178,7 @@ async function authenticateSpaceInner(
         principalId: validated.memberId,
         kind: validated.kind,
       });
-      return {
-        ok: false,
-        error: error(
-          "This account has been suspended.",
-          403,
-          "PRINCIPAL_SUSPENDED",
-        ),
-      };
+      return { ok: false, error: principalSuspended() };
     }
     principalKind = validated.kind;
     await recordApiKeyUse(core, validated.apiKeyId);
@@ -217,14 +211,7 @@ async function authenticateSpaceInner(
       const principal = await core.getPrincipal(principalId);
       if (principal?.suspendedAt) {
         debug("space auth failed: principal is suspended", { principalId });
-        return {
-          ok: false,
-          error: error(
-            "This account has been suspended.",
-            403,
-            "PRINCIPAL_SUSPENDED",
-          ),
-        };
+        return { ok: false, error: principalSuspended() };
       }
       principalName = principal?.name ?? principalId;
     } else {
@@ -246,14 +233,7 @@ async function authenticateSpaceInner(
       const principal = await core.getPrincipal(principalId);
       if (principal?.suspendedAt) {
         debug("space auth failed: principal is suspended", { principalId });
-        return {
-          ok: false,
-          error: error(
-            "This account has been suspended.",
-            403,
-            "PRINCIPAL_SUSPENDED",
-          ),
-        };
+        return { ok: false, error: principalSuspended() };
       }
       principalName = principal?.name ?? principalId;
     }
@@ -277,14 +257,7 @@ async function authenticateSpaceInner(
     const principal = await core.getPrincipal(principalId);
     if (principal?.suspendedAt) {
       debug("space auth failed: principal is suspended", { principalId });
-      return {
-        ok: false,
-        error: error(
-          "This account has been suspended.",
-          403,
-          "PRINCIPAL_SUSPENDED",
-        ),
-      };
+      return { ok: false, error: principalSuspended() };
     }
     principalName = principal?.name ?? principalId;
   }
