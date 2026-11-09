@@ -65,7 +65,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -------------------------------------------------------------------------------
 -- get_principal
 -------------------------------------------------------------------------------
-{{fn get_principal(_id uuid) returns table(id uuid, kind text, name text, space_id uuid, created_at timestamptz, updated_at timestamptz)}}
+{{fn get_principal(_id uuid) returns table(id uuid, kind text, name text, space_id uuid, suspended_at timestamptz, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.get_principal
 ( _id uuid
 )
@@ -74,11 +74,19 @@ returns table
 , kind text
 , name text
 , space_id uuid
+, suspended_at timestamptz
 , created_at timestamptz
 , updated_at timestamptz
 )
 as $func$
-  select p.id, p.kind, p.name::text, p.space_id, p.created_at, p.updated_at
+  select
+    p.id
+  , p.kind
+  , p.name::text
+  , p.space_id
+  , p.suspended_at
+  , p.created_at
+  , p.updated_at
   from {{schema}}.principal p
   where p.id = _id
 $func$ language sql stable strict rows 1 security invoker
@@ -91,7 +99,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- Resolve a global user (kind 'u') by name. User names are globally unique
 -- (citext), so this returns at most one row.
 -------------------------------------------------------------------------------
-{{fn get_user_by_name(_name text) returns table(id uuid, kind text, name text, space_id uuid, created_at timestamptz, updated_at timestamptz)}}
+{{fn get_user_by_name(_name text) returns table(id uuid, kind text, name text, space_id uuid, suspended_at timestamptz, created_at timestamptz, updated_at timestamptz)}}
 create or replace function {{schema}}.get_user_by_name
 ( _name text
 )
@@ -100,15 +108,122 @@ returns table
 , kind text
 , name text
 , space_id uuid
+, suspended_at timestamptz
 , created_at timestamptz
 , updated_at timestamptz
 )
 as $func$
-  select p.id, p.kind, p.name::text, p.space_id, p.created_at, p.updated_at
+  select
+    p.id
+  , p.kind
+  , p.name::text
+  , p.space_id
+  , p.suspended_at
+  , p.created_at
+  , p.updated_at
   from {{schema}}.principal p
   where p.kind = 'u'
   and p.name = _name::citext
 $func$ language sql stable strict rows 1 security invoker
+set search_path to pg_catalog, {{schema}}, public, pg_temp
+;
+{{endfn}}
+
+-------------------------------------------------------------------------------
+-- set_principal_suspended
+-- Suspend or restore a user or service-account principal. When suspending a
+-- human user, provisions the core principal row from auth.users if needed and
+-- deletes active auth sessions, OAuth tokens, and device codes.
+-------------------------------------------------------------------------------
+{{fn set_principal_suspended(_id uuid, _suspended bool, _auth_schema text) returns bool}}
+create or replace function {{schema}}.set_principal_suspended
+( _id uuid
+, _suspended bool default true
+, _auth_schema text default 'auth'
+)
+returns bool
+as $func$
+declare
+  _kind text;
+  _updated bool;
+begin
+  if _suspended
+    and _auth_schema is not null
+    and to_regclass(format('%I.users', _auth_schema)) is not null
+    and not exists (select 1 from {{schema}}.principal p where p.id = _id)
+  then
+    execute format
+    ( $sql$
+        insert into {{schema}}.principal (id, kind, name)
+        select u.id, 'u', u.email::text
+        from %I.users u
+        where u.id = $1
+        on conflict (id) do nothing
+      $sql$
+    , _auth_schema
+    )
+    using _id;
+  end if;
+
+  select p.kind into _kind
+  from {{schema}}.principal p
+  where p.id = _id;
+
+  if _kind is null then
+    return false;
+  end if;
+
+  if _kind = 'g' then
+    raise exception
+      'cannot suspend group %: only user and service-account principals can be suspended', _id
+      using errcode = '23514'
+      , hint = 'groups do not authenticate; suspend a user or service account instead';
+  end if;
+
+  update {{schema}}.principal set
+    suspended_at = case
+      when _suspended then coalesce(suspended_at, now())
+      else null
+    end
+  where id = _id
+  and
+  (
+    (_suspended and suspended_at is null)
+    or
+    (not _suspended and suspended_at is not null)
+  )
+  ;
+
+  _updated := found;
+
+  if _suspended
+    and _kind = 'u'
+    and _auth_schema is not null
+  then
+    if to_regclass(format('%I.oauth_access_token', _auth_schema)) is not null then
+      execute format('delete from %I.oauth_access_token where user_id = $1', _auth_schema)
+      using _id;
+    end if;
+
+    if to_regclass(format('%I.oauth_refresh_token', _auth_schema)) is not null then
+      execute format('delete from %I.oauth_refresh_token where user_id = $1', _auth_schema)
+      using _id;
+    end if;
+
+    if to_regclass(format('%I.sessions', _auth_schema)) is not null then
+      execute format('delete from %I.sessions where user_id = $1', _auth_schema)
+      using _id;
+    end if;
+
+    if to_regclass(format('%I.device_code', _auth_schema)) is not null then
+      execute format('delete from %I.device_code where user_id = $1', _auth_schema)
+      using _id;
+    end if;
+  end if;
+
+  return _updated;
+end;
+$func$ language plpgsql volatile security invoker
 set search_path to pg_catalog, {{schema}}, public, pg_temp
 ;
 {{endfn}}

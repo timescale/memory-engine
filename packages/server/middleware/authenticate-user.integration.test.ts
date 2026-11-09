@@ -87,6 +87,8 @@ beforeAll(async () => {
     secret: "test-secret-betterauth-0123456789",
     trustedOrigins: ALLOWED,
     signupEmailDomain: "tigerdata.com", // Existing example.com users remain admitted.
+    isUserSuspended: async (userId) =>
+      Boolean((await core.getPrincipal(userId))?.suspendedAt),
   });
 });
 
@@ -263,4 +265,92 @@ describe("login gate (a verified email is required to establish a session)", () 
     );
     expect(row?.n).toBe(1);
   });
+
+  test("a suspended user cannot establish a new session", async () => {
+    const userId = await seedUser();
+    await core.setPrincipalSuspended(userId, true, authSchema);
+    let error: unknown;
+    try {
+      await createSession(userId);
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeDefined();
+    const [row] = await sql.unsafe(
+      `select count(*)::int as n from ${authSchema}.sessions where user_id = $1`,
+      [userId],
+    );
+    expect(row?.n).toBe(0);
+  });
+});
+
+test("suspended user or service account is rejected with 403 PRINCIPAL_SUSPENDED and restored on unsuspend", async () => {
+  const userId = await seedUser();
+  const spaceId = (await core.listSpacesForMember(userId))[0]?.id as string;
+  const pat = await core.createApiKey(userId, "user-pat");
+  const patToken = engineCore.formatApiKey(pat.lookupId, pat.secret);
+
+  const serviceAccount = await core.createServiceAccount(
+    spaceId,
+    `svc-${rand()}`,
+  );
+  const saKey = await core.createApiKey(serviceAccount.id, "sa-key");
+  const saToken = engineCore.formatApiKey(saKey.lookupId, saKey.secret);
+
+  // Suspend user: scrubs active OAuth tokens and rejects PATs with 403 without recording usage.
+  const oauthToken = await mintAccessToken(userId);
+  expect(await core.setPrincipalSuspended(userId, true, authSchema)).toBe(true);
+
+  const patDenied = await auth(patToken);
+  expect(patDenied.ok).toBe(false);
+  if (!patDenied.ok) {
+    expect(patDenied.error.status).toBe(403);
+    const body = (await patDenied.error.json()) as {
+      error: { code: string; message: string };
+    };
+    expect(body.error.code).toBe("PRINCIPAL_SUSPENDED");
+  }
+  expect((await core.getApiKey(pat.id))?.lastUsedOn).toBeNull();
+
+  // Scrubbed OAuth token is gone (401); even if a token row existed while suspended, 403 is returned.
+  const scrubbedOAuth = await auth(oauthToken);
+  expect(scrubbedOAuth.ok).toBe(false);
+  if (!scrubbedOAuth.ok) expect(scrubbedOAuth.error.status).toBe(401);
+
+  const liveOAuthWhileSuspended = await mintAccessToken(userId);
+  const oauthDenied = await auth(liveOAuthWhileSuspended);
+  expect(oauthDenied.ok).toBe(false);
+  if (!oauthDenied.ok) {
+    expect(oauthDenied.error.status).toBe(403);
+    const body = (await oauthDenied.error.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("PRINCIPAL_SUSPENDED");
+  }
+
+  // Suspend service account: rejects SA key with 403.
+  expect(
+    await core.setPrincipalSuspended(serviceAccount.id, true, authSchema),
+  ).toBe(true);
+  const saDenied = await auth(saToken);
+  expect(saDenied.ok).toBe(false);
+  if (!saDenied.ok) {
+    expect(saDenied.error.status).toBe(403);
+    const body = (await saDenied.error.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("PRINCIPAL_SUSPENDED");
+  }
+  expect((await core.getApiKey(saKey.id))?.lastUsedOn).toBeNull();
+
+  // Restore both and confirm keys work again.
+  expect(await core.setPrincipalSuspended(userId, false, authSchema)).toBe(
+    true,
+  );
+  expect(
+    await core.setPrincipalSuspended(serviceAccount.id, false, authSchema),
+  ).toBe(true);
+
+  expect((await auth(patToken)).ok).toBe(true);
+  expect((await auth(saToken)).ok).toBe(true);
 });

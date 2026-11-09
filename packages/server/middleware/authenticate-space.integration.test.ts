@@ -499,3 +499,94 @@ test("legacy X-Me-As-Agent is ignored", async () => {
   expect(result.ok).toBe(true);
   if (result.ok) expect(result.context.principalId).toBe(p.userId);
 });
+
+test("suspended user or service account is rejected with 403 PRINCIPAL_SUSPENDED and restored on unsuspend", async () => {
+  const p = await provision();
+  const core = engineCore.coreStore(sql, coreSchema);
+  const pat = await core.createApiKey(p.userId, "space-pat");
+  const patToken = engineCore.formatApiKey(pat.lookupId, pat.secret);
+
+  const serviceAccount = await core.createServiceAccount(
+    p.spaceId,
+    `svc-${rand()}`,
+  );
+  const saKey = await core.createApiKey(serviceAccount.id, "space-sa");
+  const saToken = engineCore.formatApiKey(saKey.lookupId, saKey.secret);
+
+  expect(await core.setPrincipalSuspended(p.userId, true, authSchema)).toBe(
+    true,
+  );
+
+  // User PAT is rejected with 403 PRINCIPAL_SUSPENDED and does not record usage.
+  const patDenied = await authenticateSpace(
+    req({ token: patToken, space: p.spaceSlug }),
+    deps(),
+  );
+  expect(patDenied.ok).toBe(false);
+  if (!patDenied.ok) {
+    expect(patDenied.error.status).toBe(403);
+    const body = (await patDenied.error.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("PRINCIPAL_SUSPENDED");
+  }
+  expect((await core.getApiKey(pat.id))?.lastUsedOn).toBeNull();
+
+  // Defense-in-depth: even if an OAuth token exists while suspended, space auth returns 403.
+  const tokenWhileSuspended = await mintAccessToken(p.userId);
+  const oauthDenied = await authenticateSpace(
+    req({ token: tokenWhileSuspended, space: p.spaceSlug }),
+    deps(),
+  );
+  expect(oauthDenied.ok).toBe(false);
+  if (!oauthDenied.ok) {
+    expect(oauthDenied.error.status).toBe(403);
+    const body = (await oauthDenied.error.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("PRINCIPAL_SUSPENDED");
+  }
+
+  // Service account suspension.
+  expect(
+    await core.setPrincipalSuspended(serviceAccount.id, true, authSchema),
+  ).toBe(true);
+  const saDenied = await authenticateSpace(
+    req({ token: saToken, space: p.spaceSlug }),
+    deps(),
+  );
+  expect(saDenied.ok).toBe(false);
+  if (!saDenied.ok) {
+    expect(saDenied.error.status).toBe(403);
+    const body = (await saDenied.error.json()) as {
+      error: { code: string };
+    };
+    expect(body.error.code).toBe("PRINCIPAL_SUSPENDED");
+  }
+  expect((await core.getApiKey(saKey.id))?.lastUsedOn).toBeNull();
+
+  // Restore both and confirm access returns without losing space membership or grants.
+  expect(await core.setPrincipalSuspended(p.userId, false, authSchema)).toBe(
+    true,
+  );
+  expect(
+    await core.setPrincipalSuspended(serviceAccount.id, false, authSchema),
+  ).toBe(true);
+
+  expect(
+    (
+      await authenticateSpace(
+        req({ token: patToken, space: p.spaceSlug }),
+        deps(),
+      )
+    ).ok,
+  ).toBe(true);
+  expect(
+    (
+      await authenticateSpace(
+        req({ token: saToken, space: p.spaceSlug }),
+        deps(),
+      )
+    ).ok,
+  ).toBe(true);
+});

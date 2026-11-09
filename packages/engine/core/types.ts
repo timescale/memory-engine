@@ -49,6 +49,7 @@ export interface Principal {
   kind: PrincipalKind;
   name: string;
   spaceId: string | null;
+  suspendedAt: Date | null;
   createdAt: Date;
   updatedAt: Date | null;
 }
@@ -90,6 +91,8 @@ export interface ValidatedApiKey {
   apiKeyName: string;
   /** Whether this key carries space/tree access declarations. */
   restricted: boolean;
+  /** Whether the key's principal is currently suspended. */
+  suspended: boolean;
 }
 
 /**

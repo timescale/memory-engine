@@ -105,6 +105,8 @@ export interface BetterAuthOptions {
   google?: OAuthProviderCredentials;
   /** Restrict new users to a verified email at this exact domain; unset allows any domain. */
   signupEmailDomain?: string;
+  /** Check whether a user principal is suspended before creating a session. */
+  isUserSuspended?: (userId: string) => Promise<boolean>;
   /** Max connections for the dedicated auth pool. Default 5 (lookups are cheap). */
   poolMax?: number;
   /**
@@ -216,6 +218,12 @@ export function createBetterAuth(opts: BetterAuthOptions) {
                 code: "EMAIL_NOT_VERIFIED",
                 message:
                   "Your email is not verified with your identity provider. Verify it with GitHub or Google, then sign in again.",
+              });
+            }
+            if (await opts.isUserSuspended?.(session.userId)) {
+              throw new APIError("FORBIDDEN", {
+                code: "ACCOUNT_SUSPENDED",
+                message: "This account has been suspended.",
               });
             }
           },

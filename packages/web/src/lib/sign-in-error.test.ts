@@ -35,6 +35,15 @@ describe("readSignInError", () => {
     );
   });
 
+  test.each([
+    "ACCOUNT_SUSPENDED",
+    "PRINCIPAL_SUSPENDED",
+  ])("explains a suspended account (%s)", (code) => {
+    expect(readSignInError(`?error=${code}`)).toBe(
+      "This account has been suspended.",
+    );
+  });
+
   test("prefers the server's human description", () => {
     expect(
       readSignInError(

@@ -356,6 +356,8 @@ export async function startServer(
       secret: betterAuthSecret,
       trustedOrigins: webAllowedOrigins,
       signupEmailDomain,
+      isUserSuspended: async (userId) =>
+        Boolean((await core.getPrincipal(userId))?.suspendedAt),
       github:
         process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET
           ? {

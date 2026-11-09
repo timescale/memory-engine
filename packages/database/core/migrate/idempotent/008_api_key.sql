@@ -140,7 +140,7 @@ set search_path to pg_catalog, {{schema}}, public, pg_temp
 -- validate_api_key's returns-table has grown output columns several times — a
 -- change create-or-replace cannot make. The fn block drops a
 -- stale-signatured definition before the create and asserts the result after.
-{{fn validate_api_key(_lookup_id text, _secret text) returns table(member_id uuid, api_key_id uuid, kind text, name text, api_key_name text, restricted bool)}}
+{{fn validate_api_key(_lookup_id text, _secret text) returns table(member_id uuid, api_key_id uuid, kind text, name text, api_key_name text, restricted bool, suspended bool)}}
 create or replace function {{schema}}.validate_api_key
 ( _lookup_id text
 , _secret text -- hashed
@@ -152,9 +152,17 @@ returns table
 , name text
 , api_key_name text
 , restricted bool
+, suspended bool
 )
 as $func$
-  select k.member_id, k.id, p.kind, p.name::text, k.name, k.restricted
+  select
+    k.member_id
+  , k.id
+  , p.kind
+  , p.name::text
+  , k.name
+  , k.restricted
+  , (p.suspended_at is not null) as suspended
   from {{schema}}.api_key k
   inner join {{schema}}.principal p on p.id = k.member_id
   where k.lookup_id = _lookup_id

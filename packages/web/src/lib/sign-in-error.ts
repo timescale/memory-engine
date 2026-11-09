@@ -24,6 +24,9 @@ export function readSignInError(search: string): string | null {
   if (code === "SIGNUP_RESTRICTED") {
     return "New registrations are currently limited to verified email addresses at an approved domain. Existing users can continue to sign in.";
   }
+  if (code === "ACCOUNT_SUSPENDED" || code === "PRINCIPAL_SUSPENDED") {
+    return "This account has been suspended.";
+  }
   return code === "EMAIL_NOT_VERIFIED"
     ? "Your email is not verified with your identity provider. Verify it with GitHub or Google, then sign in again."
     : "Sign-in failed. Please try again.";
