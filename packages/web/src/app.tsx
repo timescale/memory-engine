@@ -38,6 +38,7 @@ import { CloseIcon } from "./components/icons.tsx";
 import { ColumnResizer } from "./components/layout/ColumnResizer.tsx";
 import { ExplorerHeader } from "./components/layout/ExplorerHeader.tsx";
 import { HeaderBar } from "./components/layout/HeaderBar.tsx";
+import { ShutdownBanner } from "./components/layout/ShutdownBanner.tsx";
 import { AdvancedSearchSection } from "./components/search/AdvancedSearchSection.tsx";
 import { SearchResultsPane } from "./components/search/SearchResultsPane.tsx";
 import { SimpleSearchBar } from "./components/search/SimpleSearchBar.tsx";
@@ -102,6 +103,7 @@ export function App() {
   return (
     <div className="flex h-full flex-col">
       <HeaderBar />
+      <ShutdownBanner />
 
       <div className="shrink-0 border-b border-ink/[0.12] px-6 py-4">
         {filterMode === "simple" ? (

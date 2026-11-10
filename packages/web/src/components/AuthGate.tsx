@@ -21,6 +21,7 @@ import {
   AccountProvider,
 } from "./account/account-context.ts";
 import { InvitationList } from "./account/Invitations.tsx";
+import { ShutdownBanner } from "./layout/ShutdownBanner.tsx";
 import { SignInCard } from "./SignInCard.tsx";
 
 const SPACE_STORAGE_KEY = "me.space";
@@ -254,11 +255,14 @@ function CenteredMessage({ children }: { children: ReactNode }) {
   );
 }
 
-function Card({ children }: { children: ReactNode }) {
+function Card({ email, children }: { email?: string; children: ReactNode }) {
   return (
-    <div className="flex h-full items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-xl border border-ink/[0.14] bg-surface p-8">
-        {children}
+    <div className="flex h-full flex-col">
+      {email && <ShutdownBanner email={email} />}
+      <div className="flex min-h-0 flex-1 items-center justify-center p-6">
+        <div className="w-full max-w-sm rounded-xl border border-ink/[0.14] bg-surface p-8">
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -332,7 +336,7 @@ function OnboardingScreen({
   };
 
   return (
-    <Card>
+    <Card email={identity.email}>
       <h1 className="text-lg font-semibold text-ink">Welcome</h1>
       <p className="mt-1 text-[13px] text-ink/55">
         Signed in as {identity.email}
@@ -388,7 +392,7 @@ function SpacePicker({
   onLogout: () => void;
 }) {
   return (
-    <Card>
+    <Card email={identity.email}>
       <h1 className="text-lg font-semibold text-ink">Choose a space</h1>
       <p className="mt-1 text-[13px] text-ink/55">
         Signed in as {identity.email}
