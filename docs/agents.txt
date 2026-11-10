@@ -5,7 +5,7 @@
 
 name: memory engine
 description: Permanent memory for AI agents. Store, search, and organize knowledge across conversations.
-url: https://memory.build
+url: https://github.com/timescale/memory-engine
 docs: https://docs.memory.build
 
 # MCP server

@@ -131,7 +131,7 @@ export async function checkServerVersion(
       RPC_ERROR_CODES.APPLICATION_ERROR,
       `This CLI (v${options.clientVersion}) is too old for the server. ` +
         `Minimum supported client version is ${body.minClientVersion}. ` +
-        `Please upgrade: https://memory.build/docs/getting-started`,
+        `Please upgrade: https://docs.memory.build/getting-started`,
       {
         code: APP_ERROR_CODES.CLIENT_VERSION_INCOMPATIBLE,
         clientVersion: options.clientVersion,

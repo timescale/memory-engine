@@ -17,9 +17,10 @@ This installs the `me` binary to `~/.local/bin`. Make sure it's on your PATH.
 ## Sign up and log in
 
 New accounts on the hosted service require a verified **@tigerdata.com** email
-address. Existing users with any email domain can still sign in. If GitHub
-returns your personal email, use Google with your TigerData account instead.
-Self-hosted servers may have a different signup policy.
+address. Existing external users can continue to sign in until **November 30,
+2026**, when public hosting ends. If GitHub returns your personal email, use
+Google with your TigerData account instead. To run your own backend, see the
+[Self-Hosting Guide](https://github.com/timescale/memory-engine/blob/main/SELF_HOST.md).
 
 ```bash
 me login

@@ -6,9 +6,9 @@ export function Navbar() {
       <div className="mx-auto max-w-[1440px] px-4 md:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 md:h-16">
           <a
-            href="https://memory.build"
+            href="/"
             className="flex items-center gap-3 group"
-            aria-label="memory engine -- back to home"
+            aria-label="memory engine docs home"
           >
             <LogoSVG size={20} variant="green" />
             <span className="font-pixel text-[16px] leading-none text-green group-hover:text-[#6df09a] transition-colors hidden sm:inline">

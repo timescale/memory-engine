@@ -11,8 +11,9 @@ first. To set Memory Engine up in a specific repo, see [Projects](projects.md).
 ## 1. Install and log in
 
 On the hosted service, new accounts require a verified **@tigerdata.com** email,
-even with an invitation. Existing users with any email domain can still sign in
-and accept invitations. See [Sign up and log in](getting-started.md#sign-up-and-log-in).
+even with an invitation. Existing external users can continue to sign in and
+accept invitations until **November 30, 2026**, when public hosting ends. See
+[Sign up and log in](getting-started.md#sign-up-and-log-in).
 
 If you don't have the CLI yet:
 

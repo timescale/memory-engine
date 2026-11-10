@@ -61,7 +61,7 @@ export function checkClientVersion(
   const message =
     `Client version ${header} is below the minimum supported version ` +
     `${minClientVersion}. Please upgrade your CLI: ` +
-    `https://memory.build/docs/getting-started`;
+    `https://docs.memory.build/getting-started`;
 
   if (isRpc) {
     // For RPC endpoints, return a JSON-RPC error envelope so the client's

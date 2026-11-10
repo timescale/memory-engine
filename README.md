@@ -26,6 +26,8 @@ npm i -g @memory.build/cli
 
 ## Quick start
 
+> **Hosted service notice:** New accounts on the hosted service (`api.memory.build`) require a verified `@tigerdata.com` email address, and external access ends on **November 30, 2026**. To run your own backend with Docker Compose, see **[Self-Hosting](SELF_HOST.md)** and set `export ME_SERVER=http://localhost:3000` before running `me login`.
+
 ```bash
 # Authenticate
 me login
