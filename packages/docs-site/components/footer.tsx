@@ -8,12 +8,6 @@ export function Footer() {
           </span>
           <div className="flex items-center gap-6">
             <a
-              href="https://memory.build"
-              className="font-mono text-xs uppercase tracking-[0.08em] text-white/50 hover:text-green transition-colors"
-            >
-              home
-            </a>
-            <a
               href="https://github.com/timescale/memory-engine"
               className="font-mono text-xs uppercase tracking-[0.08em] text-white/50 hover:text-green transition-colors"
             >
