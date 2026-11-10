@@ -1,12 +1,24 @@
 const INTERNAL_EMAIL_DOMAIN = "tigerdata.com";
 
+export function isPublicHostedHostname(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase();
+  return (
+    host === "memory.build" ||
+    host.endsWith(".memory.build") ||
+    host.endsWith(".timescale.com")
+  );
+}
+
 /**
- * Return the public-hosting wind-down notice when the signed-in identity has an
- * external email address, or null for @tigerdata.com and non-email identities.
+ * Return the public-hosting wind-down notice when running on the public hosted
+ * deployment and the signed-in identity has an external email address, or null
+ * for self-hosted deployments, @tigerdata.com users, and non-email identities.
  */
 export function shutdownBannerMessage(
   email: string | null | undefined,
+  opts: { hosted: boolean; hostname: string },
 ): string | null {
+  if (!opts.hosted || !isPublicHostedHostname(opts.hostname)) return null;
   if (!email) return null;
   const trimmed = email.trim();
   const atIndex = trimmed.lastIndexOf("@");

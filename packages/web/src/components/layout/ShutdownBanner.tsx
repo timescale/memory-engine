@@ -1,10 +1,14 @@
+import { HOSTED } from "../../api/bootstrap.ts";
 import { shutdownBannerMessage } from "../../lib/shutdown-banner.ts";
 import { useAccount } from "../account/account-context.ts";
 
 export function ShutdownBanner({ email }: { email?: string | null }) {
   const account = useAccount();
   const resolvedEmail = email !== undefined ? email : account?.identity.email;
-  const message = shutdownBannerMessage(resolvedEmail);
+  const message = shutdownBannerMessage(resolvedEmail, {
+    hosted: HOSTED,
+    hostname: window.location.hostname,
+  });
   if (!message) return null;
 
   return (
