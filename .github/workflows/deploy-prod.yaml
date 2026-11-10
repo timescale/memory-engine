@@ -43,29 +43,53 @@ jobs:
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-  build:
+  # A release reuses the image Deploy Dev - Merge main pushed as auto-<sha>, so
+  # prod runs the bytes that ran in dev. A second build of the commit would
+  # fail: ECR tags are immutable, and a rebuild gives a new digest.
+  retag:
+    name: Tag the dev image as latest
     runs-on: ubuntu-latest
     needs: resolve
+    # The tag is pushed with main, so the dev build is usually still running.
+    # Deploy Dev builds only commits that change server paths, so a tag on any
+    # other commit never gets an image and times out here.
+    timeout-minutes: 30
+    permissions:
+      id-token: write # assume ci-ecr through GitHub OIDC
+    env:
+      SOURCE_TAG: auto-${{ needs.resolve.outputs.sha }}
     steps:
-      - name: Dispatch Build
-        uses: timescale/workflow-dispatch-action@main
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          github-token: ${{ secrets.ORG_AUTOMATION_TOKEN }}
-          owner: timescale
-          repo: tiger-agents-deploy
-          workflow_id: build.yaml
-          ref: "main"
-          inputs: >
-            {
-              "repository": "memory-engine",
-              "dockerfile_path": "packages/server/Dockerfile",
-              "sha": "${{ needs.resolve.outputs.sha }}",
-              "latest": true
-            }
+          role-to-assume: arn:aws:iam::142548018081:role/ci-ecr
+          aws-region: us-east-1
+      - name: Wait for auto-<sha> and tag it as latest
+        run: |
+          get() {
+            # shellcheck disable=SC2086 # MEDIA_TYPES is a word list
+            aws ecr batch-get-image --repository-name memory-engine --image-ids "$1" \
+              --accepted-media-types $MEDIA_TYPES --query "images[0].$2" --output text
+          }
+          MEDIA_TYPES='application/vnd.docker.distribution.manifest.v2+json application/vnd.docker.distribution.manifest.list.v2+json application/vnd.oci.image.manifest.v1+json application/vnd.oci.image.index.v1+json'
+
+          while :; do
+            SOURCE=$(get imageTag="$SOURCE_TAG" imageId.imageDigest)
+            if [ "$SOURCE" != None ]; then break; fi
+            echo "waiting for memory-engine:$SOURCE_TAG"
+            sleep 30
+          done
+
+          if [ "$(get imageTag=latest imageId.imageDigest)" != "$SOURCE" ]; then
+            MEDIA_TYPE=$(get imageDigest="$SOURCE" imageManifestMediaType)
+            MANIFEST=$(get imageDigest="$SOURCE" imageManifest)
+            aws ecr put-image --repository-name memory-engine --image-tag latest --image-digest "$SOURCE" \
+              --image-manifest "$MANIFEST" --image-manifest-media-type "$MEDIA_TYPE" > /dev/null
+            echo "tagged memory-engine:$SOURCE_TAG ($SOURCE) as latest"
+          fi
 
   deploy:
     runs-on: ubuntu-latest
-    needs: [resolve, build]
+    needs: [resolve, retag]
     steps:
       - name: Dispatch Deploy - prod
         uses: timescale/workflow-dispatch-action@main
