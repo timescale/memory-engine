@@ -253,10 +253,12 @@ if (created.status === 201) {
 } else if (created.status === 422) {
   // GitHub returns 422 when an open pull request for the branch exists.
   const owner = TAP_REPO.split("/")[0];
-  const found = await tapApi(
-    "GET",
-    `/pulls?state=open&base=${TAP_BASE_BRANCH}&head=${owner}:${branch}`,
-  );
+  const query = new URLSearchParams({
+    state: "open",
+    base: TAP_BASE_BRANCH,
+    head: `${owner}:${branch}`,
+  });
+  const found = await tapApi("GET", `/pulls?${query}`);
   if (found.ok) {
     const pulls = (await found.json()) as { html_url: string }[];
     pullRequestUrl = pulls[0]?.html_url;
