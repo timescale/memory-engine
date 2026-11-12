@@ -158,26 +158,32 @@ export type MemoryDeleteByPathParams = z.infer<typeof memoryDeleteByPathParams>;
 /**
  * memory.search params.
  */
-export const memorySearchParams = z.object({
-  semantic: z.string().optional().nullable(),
-  fulltext: z.string().optional().nullable(),
-  grep: z.string().optional().nullable(),
-  tree: treeFilterSchema.optional().nullable(),
-  meta: metaSchema.optional().nullable(),
-  metaPredicate: z
-    .string()
-    .refine((value) => value.trim().length > 0, {
-      message: "metaPredicate must not be empty",
-    })
-    .optional()
-    .nullable(),
-  temporal: temporalFilterSchema.optional().nullable(),
-  limit: z.number().int().min(1).max(200).optional(),
-  candidateLimit: z.number().int().min(1).max(1000).optional(),
-  semanticThreshold: z.number().min(0).max(1).optional().nullable(),
-  weights: searchWeightsSchema.optional().nullable(),
-  orderBy: z.enum(["asc", "desc"]).optional(),
-});
+export const memorySearchParams = z
+  .object({
+    semantic: z.string().optional().nullable(),
+    fulltext: z.string().optional().nullable(),
+    grep: z.string().optional().nullable(),
+    tree: treeFilterSchema.optional().nullable(),
+    meta: metaSchema.optional().nullable(),
+    metaPredicate: z
+      .string()
+      .refine((value) => value.trim().length > 0, {
+        message: "metaPredicate must not be empty",
+      })
+      .optional()
+      .nullable(),
+    temporal: temporalFilterSchema.optional().nullable(),
+    cursor: uuidv7Schema.optional().nullable(),
+    limit: z.number().int().min(1).max(200).optional(),
+    candidateLimit: z.number().int().min(1).max(1000).optional(),
+    semanticThreshold: z.number().min(0).max(1).optional().nullable(),
+    weights: searchWeightsSchema.optional().nullable(),
+    orderBy: z.enum(["asc", "desc"]).optional(),
+  })
+  .refine((p) => !(p.cursor && (p.semantic || p.fulltext)), {
+    message:
+      "cursor is only supported for filter-only search (cannot be combined with semantic or fulltext)",
+  });
 
 export type MemorySearchParams = z.infer<typeof memorySearchParams>;
 
@@ -390,6 +396,7 @@ export const memorySearchResult = z.object({
   results: z.array(memoryWithScoreResponse),
   total: z.number(),
   limit: z.number(),
+  nextCursor: z.string().nullable(),
 });
 
 export type MemorySearchResult = z.infer<typeof memorySearchResult>;

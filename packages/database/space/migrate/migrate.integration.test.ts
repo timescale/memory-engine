@@ -656,7 +656,7 @@ describe("migration behavior", () => {
         `drop function ${space.schema}.hybrid_search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, float8, bigint, float8, float8, bigint, jsonpath, timestamptz)`,
       );
       await sql.unsafe(
-        `drop function ${space.schema}.search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, bigint, text, jsonpath, timestamptz)`,
+        `drop function ${space.schema}.search_memory(jsonb, bm25query, halfvec, float8, ltree, lquery, ltxtquery, jsonb, tstzrange, tstzrange, timestamptz, timestamptz, text, bigint, text, jsonpath, timestamptz, uuid)`,
       );
 
       const resultColumns = `
@@ -741,7 +741,7 @@ describe("migration behavior", () => {
         })),
       ).toEqual([
         { proname: "hybrid_search_memory", arg_count: 20 },
-        { proname: "search_memory", arg_count: 17 },
+        { proname: "search_memory", arg_count: 18 },
       ]);
       expect(await getSchemaVersion(sql, space.schema)).toBe(
         SPACE_SCHEMA_VERSION,

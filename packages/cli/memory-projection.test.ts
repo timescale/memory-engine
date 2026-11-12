@@ -166,13 +166,14 @@ describe("projectMemory", () => {
   test("projects search rows while preserving the result envelope", () => {
     expect(
       projectSearchResult(
-        { results: [memory], total: 1, limit: 10 },
+        { results: [memory], total: 1, limit: 10, nextCursor: memory.id },
         parseSelectFields(["id", "score"]),
       ),
     ).toEqual({
       results: [{ id: memory.id, score: 2.5 }],
       total: 1,
       limit: 10,
+      nextCursor: memory.id,
     });
   });
 });

@@ -160,6 +160,22 @@ describe("memorySearchParams", () => {
       false,
     );
   });
+
+  test("accepts cursor for filter-only search and rejects it with semantic or fulltext", () => {
+    const cursor = "01941000-0000-7000-8000-000000000001";
+    expect(
+      memorySearchParams.safeParse({ tree: "share", cursor }).success,
+    ).toBe(true);
+    expect(memorySearchParams.safeParse({ cursor: "not-a-uuid" }).success).toBe(
+      false,
+    );
+    expect(
+      memorySearchParams.safeParse({ semantic: "hello", cursor }).success,
+    ).toBe(false);
+    expect(
+      memorySearchParams.safeParse({ fulltext: "hello", cursor }).success,
+    ).toBe(false);
+  });
 });
 
 describe("memoryBatchCreateParams", () => {

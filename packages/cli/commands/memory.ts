@@ -19,8 +19,10 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as clack from "@clack/prompts";
+import type { MemorySearchParams } from "@memory.build/protocol/memory";
 import { Command } from "commander";
 import { stringify as yamlStringify } from "yaml";
+import { searchAllPages } from "../chunk.ts";
 import { resolveCredentials } from "../credentials.ts";
 import {
   type ParsedSelect,
@@ -136,6 +138,19 @@ export function parseMaxCount(value: string | undefined): number | undefined {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error("Invalid --max-count: expected a positive integer");
+  }
+  return parsed;
+}
+
+export function parseExportLimit(
+  value: string | undefined,
+): number | undefined {
+  if (value === undefined || value.trim().toLowerCase() === "all") {
+    return undefined;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error("Invalid --limit: expected a positive integer or 'all'");
   }
   return parsed;
 }
@@ -428,6 +443,10 @@ function createMemorySearchCommand(): Command {
       "filter-only search: order by recency, desc (default, newest first) | asc",
     )
     .option(
+      "--cursor <id>",
+      "filter-only search: page from a prior result's nextCursor",
+    )
+    .option(
       "--select <fields>",
       "comma-separated fields to return (for example id,tree,content:200,score)",
     )
@@ -510,6 +529,7 @@ function createMemorySearchCommand(): Command {
         if (opts.semanticThreshold)
           params.semanticThreshold = Number.parseFloat(opts.semanticThreshold);
         if (opts.orderBy) params.orderBy = opts.orderBy;
+        if (opts.cursor) params.cursor = opts.cursor;
         const select =
           opts.select !== undefined
             ? parseSelect(opts.select)
@@ -538,28 +558,31 @@ function createMemorySearchCommand(): Command {
             console.log(
               yamlStringify(result.results, { lineWidth: 0 }).trimEnd(),
             );
-            return;
+          } else {
+            for (const [index, resultMemory] of result.results.entries()) {
+              const content = resultMemory.content ?? "";
+              const flat = content.replace(/\s+/g, " ").trim();
+              const length =
+                "contentLength" in resultMemory
+                  ? resultMemory.contentLength
+                  : undefined;
+              const preview =
+                length !== undefined && length > content.length
+                  ? `${flat}...`
+                  : flat;
+              if (resultMemory.id !== undefined) console.log(resultMemory.id);
+              if (resultMemory.tree !== undefined) {
+                console.log(`  tree: ${resultMemory.tree}`);
+              }
+              console.log(`  ${preview}`);
+              if (resultMemory.score !== undefined) {
+                console.log(`  score: ${resultMemory.score.toFixed(3)}`);
+              }
+              if (index < result.results.length - 1) console.log();
+            }
           }
-          for (const [index, resultMemory] of result.results.entries()) {
-            const content = resultMemory.content ?? "";
-            const flat = content.replace(/\s+/g, " ").trim();
-            const length =
-              "contentLength" in resultMemory
-                ? resultMemory.contentLength
-                : undefined;
-            const preview =
-              length !== undefined && length > content.length
-                ? `${flat}...`
-                : flat;
-            if (resultMemory.id !== undefined) console.log(resultMemory.id);
-            if (resultMemory.tree !== undefined) {
-              console.log(`  tree: ${resultMemory.tree}`);
-            }
-            console.log(`  ${preview}`);
-            if (resultMemory.score !== undefined) {
-              console.log(`  score: ${resultMemory.score.toFixed(3)}`);
-            }
-            if (index < result.results.length - 1) console.log();
+          if (result.nextCursor) {
+            console.log(`\nmore: --cursor ${result.nextCursor}`);
           }
         });
       } catch (error) {
@@ -1223,7 +1246,10 @@ function createMemoryExportCommand(): Command {
       "PostgreSQL JSONPath predicate evaluated against metadata",
       parseMetaPredicate,
     )
-    .option("--limit <n>", "max memories to export (max 200)", "200")
+    .option(
+      "--limit <n>",
+      "max memories to export (positive integer or 'all'; default: all)",
+    )
     .option(
       "--temporal-before <ts>",
       "memory must be strictly before this point",
@@ -1247,27 +1273,27 @@ function createMemoryExportCommand(): Command {
         );
       }
 
-      // Build search params (filter-only, no semantic/fulltext)
-      const searchParams: Record<string, unknown> = {
-        limit: Number.parseInt(opts.limit, 10),
-        orderBy: "asc" as const,
-      };
-      if (opts.tree) searchParams.tree = opts.tree;
-      if (opts.meta) searchParams.meta = parseMeta(opts.meta);
-      if (opts.metaPredicate) searchParams.metaPredicate = opts.metaPredicate;
-
       const temporal = parseTemporalFilters(opts, fmt);
-      if (temporal) searchParams.temporal = temporal;
-
       const client = buildMemoryClient(creds);
 
       try {
-        const result = await client.memory.search(
-          searchParams as Parameters<typeof client.memory.search>[0],
-        );
+        const maxResults = parseExportLimit(opts.limit);
 
-        const memories = result.results.map((r: Record<string, unknown>) =>
-          toExportable(r as Record<string, unknown>),
+        // Build search params (filter-only, no semantic/fulltext)
+        const searchParams: Omit<MemorySearchParams, "cursor" | "limit"> = {
+          orderBy: "asc",
+        };
+        if (opts.tree) searchParams.tree = opts.tree;
+        if (opts.meta) searchParams.meta = parseMeta(opts.meta);
+        if (opts.metaPredicate) searchParams.metaPredicate = opts.metaPredicate;
+        if (temporal) {
+          searchParams.temporal = temporal as MemorySearchParams["temporal"];
+        }
+
+        const results = await searchAllPages(client, searchParams, maxResults);
+
+        const memories = results.map((r) =>
+          toExportable(r as unknown as Record<string, unknown>),
         );
 
         if (memories.length === 0) {

@@ -439,7 +439,8 @@ export function spaceStore(sql: Sql, schema: string): SpaceStore {
            ${Math.min(o.limit ?? 10, 200)},
            ${o.order ?? "desc"},
            ${o.metaPredicate ?? null}::jsonpath,
-           ${o.temporalContains ?? null}::timestamptz
+           ${o.temporalContains ?? null}::timestamptz,
+           ${o.cursor ?? null}::uuid
         )`;
       return rows.map(mapSearchItem);
     },

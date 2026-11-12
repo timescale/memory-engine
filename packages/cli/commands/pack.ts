@@ -9,7 +9,7 @@
 import { readFileSync } from "node:fs";
 import * as clack from "@clack/prompts";
 import { Command } from "commander";
-import { batchCreateChunked } from "../chunk.ts";
+import { batchCreateChunked, searchAllPages } from "../chunk.ts";
 import { resolveCredentials } from "../credentials.ts";
 import { getOutputFormat, output, table } from "../output.ts";
 import { parsePack, validatePackConstraints } from "../parsers/pack.ts";
@@ -134,13 +134,12 @@ function createPackInstallCommand(): Command {
         const client = buildMemoryClient(creds);
 
         // Step 3: Search for existing memories with same pack name
-        const existing = await client.memory.search({
+        const existingResults = await searchAllPages(client, {
           meta: { pack: { name: packName } },
-          limit: 200,
         });
 
         // Step 4: Identify stale memories (different version)
-        const stale = existing.results.filter((m: Record<string, unknown>) => {
+        const stale = existingResults.filter((m: Record<string, unknown>) => {
           const meta = m.meta as Record<string, unknown> | undefined;
           const packMeta = meta?.pack as Record<string, unknown> | undefined;
           return packMeta?.version !== packVersion;
@@ -154,7 +153,7 @@ function createPackInstallCommand(): Command {
           // with non-pack memories without extra lookups, so the actual
           // install may surface additional `skippedConflict` warnings.
           const survivingIds = new Set(
-            existing.results
+            existingResults
               .filter((m) => {
                 const meta = m.meta as Record<string, unknown> | undefined;
                 const packMeta = meta?.pack as
@@ -177,7 +176,7 @@ function createPackInstallCommand(): Command {
               wouldInstall,
               wouldSkipIdempotent,
               wouldDeleteStale: stale.length,
-              existingTotal: existing.results.length,
+              existingTotal: existingResults.length,
             },
             fmt,
             () => {
@@ -191,7 +190,7 @@ function createPackInstallCommand(): Command {
                 );
               }
               console.log(`  Would delete stale: ${stale.length}`);
-              console.log(`  Existing: ${existing.results.length}`);
+              console.log(`  Existing: ${existingResults.length}`);
             },
           );
           return;
@@ -267,7 +266,7 @@ function createPackInstallCommand(): Command {
         );
         const { idempotent, conflict } = classifySkips({
           skippedIds,
-          existing: existing.results,
+          existing: existingResults,
           packName,
           packVersion,
         });
@@ -377,9 +376,8 @@ function createPackListCommand(): Command {
 
       try {
         // Search for all memories with meta.pack
-        const result = await client.memory.search({
+        const results = await searchAllPages(client, {
           meta: { pack: {} },
-          limit: 200,
         });
 
         // Group by pack name
@@ -388,7 +386,7 @@ function createPackListCommand(): Command {
           { name: string; version: string; count: number }
         >();
 
-        for (const mem of result.results) {
+        for (const mem of results) {
           const meta = mem.meta as Record<string, unknown> | undefined;
           const packMeta = meta?.pack as Record<string, unknown> | undefined;
           if (!packMeta?.name) continue;

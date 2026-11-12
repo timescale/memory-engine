@@ -1057,6 +1057,68 @@ test("export creates non-executable data files and overwrites regular data files
   }
 });
 
+test("me_memory_export pages past 200 memories via nextCursor", async () => {
+  const makeId = (i: number) =>
+    `0194a000-0001-7000-8000-${String(i).padStart(12, "0")}`;
+  const dataset = Array.from({ length: 250 }, (_, i) => ({
+    ...fullMemory,
+    id: makeId(i + 1),
+    content: `mem-${i + 1}`,
+    score: -1,
+  }));
+  const searchParamsSeen: Array<Record<string, unknown>> = [];
+  globalThis.fetch = (async (
+    _input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
+    const body = JSON.parse(String(init?.body)) as {
+      id: number;
+      method: string;
+      params?: Record<string, unknown>;
+    };
+    const params = body.params ?? {};
+    searchParamsSeen.push(params);
+    const limit = Number(params.limit ?? 10);
+    const cursor = params.cursor as string | undefined;
+    const startIdx = cursor ? dataset.findIndex((r) => r.id === cursor) + 1 : 0;
+    const results = dataset.slice(startIdx, startIdx + limit);
+    const nextCursor =
+      results.length === limit
+        ? (results[results.length - 1]?.id ?? null)
+        : null;
+    return new Response(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: body.id,
+        result: { results, total: results.length, limit, nextCursor },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  }) as typeof fetch;
+
+  const { client, server } = await connect("locked");
+  try {
+    const res = await client.callTool({
+      name: "me_memory_export",
+      arguments: { format: "json" },
+    });
+    expect(res.isError).toBeFalsy();
+    const parsed = JSON.parse(toolText(res)) as {
+      count: number;
+      content: string;
+    };
+    expect(parsed.count).toBe(250);
+    const exported = JSON.parse(parsed.content) as Array<{ id: string }>;
+    expect(exported.map((m) => m.id)).toEqual(dataset.map((m) => m.id));
+    expect(searchParamsSeen).toEqual([
+      { limit: 200, orderBy: "asc" },
+      { limit: 200, orderBy: "asc", cursor: makeId(200) },
+    ]);
+  } finally {
+    await Promise.all([client.close(), server.close()]);
+  }
+});
+
 test("localPath treats the filesystem root as a valid working directory", async () => {
   // `/` + separator must not become `//`, which would reject every child.
   const dir = await realpath(await mkdtemp(join(tmpdir(), "me-mcp-root-")));

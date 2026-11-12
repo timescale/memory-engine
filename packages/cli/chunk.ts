@@ -16,6 +16,8 @@
 
 import type {
   MemoryCreateParams,
+  MemorySearchParams,
+  MemoryWithScoreResponse,
   MemoryWriteResult,
 } from "@memory.build/protocol/memory";
 
@@ -224,4 +226,51 @@ export async function batchCreateChunked(
   }
 
   return { results, errors };
+}
+
+/** Max rows per filter-only `memory.search` page. Matches the protocol limit. */
+export const SEARCH_PAGE_LIMIT = 200;
+
+/** Minimal client shape `searchAllPages` needs. */
+export interface SearchPageClient<
+  T extends { id: string } = MemoryWithScoreResponse,
+> {
+  memory: {
+    search: (
+      params: MemorySearchParams,
+    ) => Promise<{ results: T[]; nextCursor?: string | null }>;
+  };
+}
+
+/**
+ * Page through a filter-only `memory.search` query using keyset cursors until
+ * all matching rows (or `maxResults` rows, when given) are collected.
+ */
+export async function searchAllPages<
+  T extends { id: string } = MemoryWithScoreResponse,
+>(
+  client: SearchPageClient<T>,
+  params: Omit<MemorySearchParams, "cursor" | "limit">,
+  maxResults?: number,
+): Promise<T[]> {
+  const all: T[] = [];
+  let cursor: string | undefined;
+
+  while (maxResults === undefined || all.length < maxResults) {
+    const remaining =
+      maxResults === undefined ? SEARCH_PAGE_LIMIT : maxResults - all.length;
+    const pageLimit = Math.min(remaining, SEARCH_PAGE_LIMIT);
+    const page = await client.memory.search({
+      ...params,
+      limit: pageLimit,
+      ...(cursor !== undefined ? { cursor } : {}),
+    });
+    all.push(...page.results);
+    if (!page.nextCursor || page.results.length < pageLimit) {
+      break;
+    }
+    cursor = page.nextCursor;
+  }
+
+  return maxResults === undefined ? all : all.slice(0, maxResults);
 }
