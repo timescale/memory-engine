@@ -1606,6 +1606,7 @@ Docs: ${docUrl("me_memory_export")}`,
           limit: z
             .number()
             .int()
+            .min(0)
             .optional()
             .nullable()
             .describe("Maximum memories to export (omit, null, or 0 for all)"),
