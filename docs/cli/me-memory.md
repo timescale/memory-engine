@@ -105,6 +105,7 @@ me memory search [query] [options]
 | `--weight-semantic <w>` | Semantic weight, 0-1. |
 | `--weight-fulltext <w>` | Fulltext weight, 0-1. |
 | `--order-by <dir>` | For filter-only searches, sort by recency: `desc` (default) or `asc`. |
+| `--cursor <id>` | For filter-only searches, page from a prior result's `nextCursor`. |
 | `--select <fields>` | Comma-separated response fields to return for each result. Omit for full records in JSON/YAML output; the default text view locally presents an ID, tree, 120-code-unit content preview, and score. |
 
 At least one search criterion is required. A positional `query` runs hybrid search by sending the same text to semantic and fulltext ranking. Use `--semantic` for pure vector search, `--fulltext` for pure keyword search, or both flags to provide different text for each mode.
@@ -480,7 +481,7 @@ me memory export [file] [options]
 | `--format <fmt>` | Output format: `json`, `yaml`, `md` (default: `json`). |
 | `--meta <json>` | Metadata filter as JSON. |
 | `--meta-predicate <jsonpath>` | PostgreSQL JSONPath Boolean predicate evaluated against metadata. |
-| `--limit <n>` | Max memories to export (default: 200, max 200). |
+| `--limit <n>` | Max memories to export (positive integer or `all`; default: `all`). |
 | `--temporal-before <ts>` | Memory must be strictly before this point in time. |
 | `--temporal-after <ts>` | Memory must be strictly after this point in time. |
 | `--temporal-contains <ts>` | Memory must contain this point in time. |

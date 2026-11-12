@@ -381,6 +381,30 @@ describe("searchAllPages", () => {
       { limit: 50, cursor: makeId(200) },
     ]);
   });
+
+  test("throws when a pre-pagination server returns a full page without nextCursor and more results may exist", async () => {
+    const fullPage = Array.from({ length: 200 }, (_, i) => ({
+      id: makeId(i + 1),
+    }));
+    const oldServerClient = {
+      memory: {
+        search: async () => ({ results: fullPage }),
+      },
+    };
+
+    await expect(
+      searchAllPages(oldServerClient, { orderBy: "asc" }),
+    ).rejects.toThrow(/without nextCursor/);
+
+    // If the caller explicitly requested at most 200 results, the limit is
+    // already satisfied after the first page so no second page is needed.
+    const capped = await searchAllPages(
+      oldServerClient,
+      { orderBy: "asc" },
+      200,
+    );
+    expect(capped).toHaveLength(200);
+  });
 });
 
 describe("parseExportLimit", () => {

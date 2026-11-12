@@ -21,6 +21,7 @@ Supports three search modes: **semantic** (meaning-based), **fulltext** (keyword
 | `semanticThreshold` | `number \| null` | no | Minimum cosine similarity, in `[0, 1]` (1 = identical, 0 = unrelated), for semantic/vector candidates. Higher is stricter. Values outside `[0, 1]` are rejected, not clamped. Omit or pass `null` to skip. |
 | `limit` | `integer \| null` | no | Maximum number of results. Omit or pass `null` for default (10). Max: 200. |
 | `order_by` | `string \| null` | no | Sort direction for filter-only searches: `"asc"` or `"desc"`. Default: `"desc"`. Omit or pass `null` for default. |
+| `cursor` | `string \| null` | no | Keyset cursor (last memory ID seen, from a prior response's `nextCursor`) for filter-only searches. Rejected when `semantic` or `fulltext` is set. Omit or pass `null` for the first page. |
 | `select` | `string[] \| null` | no | Fields to present for each result. Omit or pass `null` for complete memory objects. Supports response fields, `meta.keyName`, and content slices. |
 | `format` | `"yaml" \| "json" \| "compact" \| null` | no | Text serialization format. Omit or pass `null` for YAML; `json` and `compact` both return compact JSON. |
 
@@ -102,15 +103,17 @@ pass `format: "json"` or `format: "compact"` for compact JSON text.
     }
   ],
   "total": 1,
-  "limit": 10
+  "limit": 10,
+  "nextCursor": null
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `results` | `array` | Array of memory objects (same shape as `me_memory_get`, including `version` and `versionHash`), each with an additional mode-dependent `score`. |
-| `total` | `number` | Total number of matching memories. |
+| `total` | `number` | Number of results returned in this page. |
 | `limit` | `number` | The limit that was applied. |
+| `nextCursor` | `string \| null` | Keyset cursor (last memory ID in `results`) when a filter-only search returns a full page (`results.length === limit`); `null` otherwise. Pass as `cursor` to fetch the next page. |
 
 ## Examples
 
