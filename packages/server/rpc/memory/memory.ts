@@ -713,6 +713,13 @@ async function memorySearch(
   const ctx = context as SpaceRpcContext;
   const { store, treeAccess, embeddingConfig } = ctx;
 
+  if (params.cursor && (params.semantic || params.fulltext)) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "cursor is only supported for filter-only search (cannot be combined with semantic or fulltext)",
+    );
+  }
+
   // Generate the query embedding for semantic search.
   let vec: number[] | undefined;
   if (params.semantic) {
@@ -800,10 +807,15 @@ async function memorySearch(
         minSimilarity,
         limit,
         order: params.orderBy ?? undefined,
+        cursor: params.cursor ?? undefined,
         ...filters,
       }),
     );
   }
+
+  const isUnranked = !bm25 && !vec;
+  const last =
+    isUnranked && items.length === limit ? items[items.length - 1] : undefined;
 
   return {
     results: items.map((item) => ({
@@ -812,6 +824,7 @@ async function memorySearch(
     })),
     total: items.length,
     limit,
+    nextCursor: last ? last.id : null,
   };
 }
 

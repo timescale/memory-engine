@@ -159,6 +159,8 @@ export interface SearchOptions extends MemoryFilters {
    * `bm25`/`vec` query is present — those are ordered by relevance score.
    */
   order?: "asc" | "desc";
+  /** Keyset cursor for filter-only search: seek strictly past this memory id. */
+  cursor?: string;
 }
 
 export interface HybridSearchOptions extends MemoryFilters {

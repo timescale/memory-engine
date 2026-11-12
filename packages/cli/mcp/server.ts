@@ -34,7 +34,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { stringify as yamlStringify } from "yaml";
 import { z } from "zod";
 import { CLIENT_VERSION } from "../../../version";
-import { batchCreateChunked } from "../chunk.ts";
+import { batchCreateChunked, searchAllPages } from "../chunk.ts";
 import type { MemoryClient, UserClient } from "../client.ts";
 import { createMemoryClient, createUserClient } from "../client.ts";
 import {
@@ -552,6 +552,13 @@ Docs: ${docUrl("me_memory_search")}`,
             .describe(
               "Sort direction for filter-only searches (no semantic/fulltext). Default: desc",
             ),
+          cursor: z
+            .string()
+            .optional()
+            .nullable()
+            .describe(
+              "Keyset cursor (last memory ID seen, from a prior response's nextCursor) for filter-only searches.",
+            ),
           select: selectSchema
             .optional()
             .nullable()
@@ -606,6 +613,7 @@ Docs: ${docUrl("me_memory_search")}`,
         semanticThreshold: args.semanticThreshold ?? undefined,
         orderBy:
           (args.order_by as "asc" | "desc" | null | undefined) ?? undefined,
+        cursor: args.cursor ?? undefined,
       });
       const select = args.select ? parseSelectFields(args.select) : null;
       const result = select
@@ -1600,9 +1608,7 @@ Docs: ${docUrl("me_memory_export")}`,
             .int()
             .optional()
             .nullable()
-            .describe(
-              "Maximum memories to export (omit or null for default 200, max 200)",
-            ),
+            .describe("Maximum memories to export (omit, null, or 0 for all)"),
           path: z
             .string()
             .optional()
@@ -1628,8 +1634,10 @@ Docs: ${docUrl("me_memory_export")}`,
       },
     },
     async (args) => {
-      const searchParams: Record<string, unknown> = {
-        limit: args.limit && args.limit > 0 ? args.limit : 200,
+      const searchParams: Omit<
+        Parameters<MemoryClient["memory"]["search"]>[0],
+        "cursor" | "limit"
+      > = {
         orderBy: "asc",
       };
       if (args.tree) searchParams.tree = args.tree;
@@ -1644,13 +1652,16 @@ Docs: ${docUrl("me_memory_export")}`,
           within: args.temporal.within ?? undefined,
         };
       }
+      const maxResults = args.limit && args.limit > 0 ? args.limit : undefined;
 
-      const result = await clientFor(args).memory.search(
-        searchParams as Parameters<MemoryClient["memory"]["search"]>[0],
+      const results = await searchAllPages(
+        clientFor(args),
+        searchParams,
+        maxResults,
       );
 
       // Strip to import-compatible fields
-      const memories = result.results.map((r: Record<string, unknown>) => ({
+      const memories = results.map((r: Record<string, unknown>) => ({
         id: r.id,
         content: r.content,
         ...((r.meta as Record<string, unknown> | undefined) &&

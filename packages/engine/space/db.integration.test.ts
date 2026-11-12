@@ -295,7 +295,7 @@ test("unranked (filter-only) search orders by id, newest-first by default", asyn
     "01900000-0000-7000-8000-000000000001",
     "01900000-0000-7000-8000-000000000002",
     "01900000-0000-7000-8000-000000000003",
-  ];
+  ] as const;
   for (const id of ids) {
     await db.createMemory(FULL, { id, tree: "work.ord", content: `c-${id}` });
   }
@@ -310,7 +310,7 @@ test("unranked (filter-only) search orders by id, newest-first by default", asyn
     order: "asc",
     limit: 10,
   });
-  expect(asc.map((r) => r.id)).toEqual(ids);
+  expect(asc.map((r) => r.id)).toEqual([...ids]);
 
   // Explicit desc matches the default.
   const desc = await db.search(FULL, {
@@ -319,6 +319,31 @@ test("unranked (filter-only) search orders by id, newest-first by default", asyn
     limit: 10,
   });
   expect(desc.map((r) => r.id)).toEqual([...ids].reverse());
+
+  // Keyset cursor seeks strictly past the given id in both directions.
+  const ascAfterFirst = await db.search(FULL, {
+    ltree: "work.ord",
+    order: "asc",
+    cursor: ids[0],
+    limit: 10,
+  });
+  expect(ascAfterFirst.map((r) => r.id)).toEqual(ids.slice(1));
+
+  const descBeforeLast = await db.search(FULL, {
+    ltree: "work.ord",
+    order: "desc",
+    cursor: ids[2],
+    limit: 10,
+  });
+  expect(descBeforeLast.map((r) => r.id)).toEqual([ids[1], ids[0]]);
+
+  // Cursor is rejected when a ranking arm (bm25 or vec) is set.
+  await expect(
+    db.search(FULL, { bm25: "c", cursor: ids[0], limit: 10 }),
+  ).rejects.toThrow(/_cursor is only supported for unranked/);
+  await expect(
+    db.search(FULL, { vec: [1, 0, 0, 0], cursor: ids[0], limit: 10 }),
+  ).rejects.toThrow(/_cursor is only supported for unranked/);
 });
 
 test("temporal filters are conjunctive, including contains and overlaps", async () => {

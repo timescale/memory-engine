@@ -6,7 +6,7 @@
 -- _max_vec_dist -> _min_similarity (a param rename is a 42P13 just like a type
 -- change). The fn block drops a stale-signatured definition before the create
 -- (matching on arg types AND names) and asserts the new signature after.
-{{fn search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _min_similarity float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _limit bigint, _order text, _meta_predicate jsonpath, _temporal_contains timestamptz) returns table (id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
+{{fn search_memory(_tree_access jsonb, _bm25 bm25query, _vec halfvec, _min_similarity float8, _ltree ltree, _lquery lquery, _ltxtquery ltxtquery, _meta_contains jsonb, _temporal_within tstzrange, _temporal_overlaps tstzrange, _temporal_before timestamptz, _temporal_after timestamptz, _regexp text, _limit bigint, _order text, _meta_predicate jsonpath, _temporal_contains timestamptz, _cursor uuid) returns table (id uuid, meta jsonb, tree ltree, temporal tstzrange, content text, name text, version bigint, version_hash text, has_embedding bool, created_at timestamptz, updated_at timestamptz, score float8)}}
 create or replace function {{schema}}.search_memory
 ( _tree_access jsonb
 , _bm25 bm25query default null
@@ -25,6 +25,7 @@ create or replace function {{schema}}.search_memory
 , _order text default 'desc'  -- unranked (filter-only) result order by id: 'desc' (newest first) | 'asc'
 , _meta_predicate jsonpath default null
 , _temporal_contains timestamptz default null
+, _cursor uuid default null  -- keyset cursor for unranked (filter-only) search
 )
 returns table
 ( id uuid
@@ -57,6 +58,11 @@ begin
 
   if _min_similarity is not null and _vec is null then
     raise exception '_min_similarity provided but _vec was not provided'
+      using errcode = 'invalid_parameter_value';
+  end if;
+
+  if _cursor is not null and (_bm25 is not null or _vec is not null) then
+    raise exception '_cursor is only supported for unranked (filter-only) search'
       using errcode = 'invalid_parameter_value';
   end if;
 
@@ -139,10 +145,23 @@ begin
     -- for the importer's deterministic ids), i.e. a chronological browse. Default
     -- desc (newest first). `_order` is whitelisted to asc|desc to keep this
     -- interpolation injection-safe.
-    _order_by = format
-    ( $sql$order by m.id %s$sql$
-    , case when lower(coalesce(_order, 'desc')) = 'asc' then 'asc' else 'desc' end
-    );
+    if lower(coalesce(_order, 'desc')) = 'asc' then
+      _order_by = $sql$order by m.id asc$sql$;
+      if _cursor is not null then
+        _filters = array_append
+        ( _filters
+        , format($sql$and m.id > %L::uuid$sql$, _cursor)
+        );
+      end if;
+    else
+      _order_by = $sql$order by m.id desc$sql$;
+      if _cursor is not null then
+        _filters = array_append
+        ( _filters
+        , format($sql$and m.id < %L::uuid$sql$, _cursor)
+        );
+      end if;
+    end if;
   end case;
 
   -- ltree

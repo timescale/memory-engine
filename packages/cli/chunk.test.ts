@@ -12,7 +12,9 @@ import {
   type BatchCreateClient,
   batchCreateChunked,
   chunkByBytes,
+  searchAllPages,
 } from "./chunk.ts";
+import { parseExportLimit } from "./commands/memory.ts";
 
 describe("chunkByBytes", () => {
   // Cheap size: each character is 1 byte.
@@ -310,5 +312,89 @@ describe("batchCreateChunked", () => {
     expect(result.results).toEqual([]);
     expect(result.errors).toEqual([]);
     expect(calls).toBe(0);
+  });
+});
+
+describe("searchAllPages", () => {
+  const makeId = (i: number) =>
+    `01941000-0000-7000-8000-${String(i).padStart(12, "0")}`;
+
+  test("pages through all results when maxResults is omitted", async () => {
+    const dataset = Array.from({ length: 450 }, (_, i) => ({
+      id: makeId(i + 1),
+    }));
+    const calls: Array<{ limit?: number; cursor?: string | null }> = [];
+    const client = {
+      memory: {
+        search: async (params: { limit?: number; cursor?: string | null }) => {
+          calls.push({ limit: params.limit, cursor: params.cursor });
+          const limit = params.limit ?? 10;
+          const startIdx = params.cursor
+            ? dataset.findIndex((r) => r.id === params.cursor) + 1
+            : 0;
+          const results = dataset.slice(startIdx, startIdx + limit);
+          const nextCursor =
+            results.length === limit
+              ? (results[results.length - 1]?.id ?? null)
+              : null;
+          return { results, nextCursor };
+        },
+      },
+    };
+
+    const rows = await searchAllPages(client, { orderBy: "asc" });
+    expect(rows.map((r) => r.id)).toEqual(dataset.map((r) => r.id));
+    expect(calls).toEqual([
+      { limit: 200, cursor: undefined },
+      { limit: 200, cursor: makeId(200) },
+      { limit: 200, cursor: makeId(400) },
+    ]);
+  });
+
+  test("caps page size and total rows when maxResults is provided", async () => {
+    const dataset = Array.from({ length: 450 }, (_, i) => ({
+      id: makeId(i + 1),
+    }));
+    const calls: Array<{ limit?: number; cursor?: string | null }> = [];
+    const client = {
+      memory: {
+        search: async (params: { limit?: number; cursor?: string | null }) => {
+          calls.push({ limit: params.limit, cursor: params.cursor });
+          const limit = params.limit ?? 10;
+          const startIdx = params.cursor
+            ? dataset.findIndex((r) => r.id === params.cursor) + 1
+            : 0;
+          const results = dataset.slice(startIdx, startIdx + limit);
+          const nextCursor =
+            results.length === limit
+              ? (results[results.length - 1]?.id ?? null)
+              : null;
+          return { results, nextCursor };
+        },
+      },
+    };
+
+    const rows = await searchAllPages(client, { orderBy: "asc" }, 250);
+    expect(rows).toHaveLength(250);
+    expect(calls).toEqual([
+      { limit: 200, cursor: undefined },
+      { limit: 50, cursor: makeId(200) },
+    ]);
+  });
+});
+
+describe("parseExportLimit", () => {
+  test("treats undefined and 'all' as unbounded", () => {
+    expect(parseExportLimit(undefined)).toBeUndefined();
+    expect(parseExportLimit("all")).toBeUndefined();
+    expect(parseExportLimit(" ALL ")).toBeUndefined();
+  });
+
+  test("parses positive integers and rejects invalid values", () => {
+    expect(parseExportLimit("1")).toBe(1);
+    expect(parseExportLimit("500")).toBe(500);
+    for (const bad of ["0", "-5", "1.5", "nope", ""]) {
+      expect(() => parseExportLimit(bad)).toThrow(/Invalid --limit/);
+    }
   });
 });

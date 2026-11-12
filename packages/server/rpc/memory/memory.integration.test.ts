@@ -965,11 +965,95 @@ test("search: tree filter only (no ranking) returns matches", async () => {
       { content: "out of scope", tree: "share.other" },
     ],
   });
-  const res = await call<{ results: { tree: string }[] }>("memory.search", {
+  const res = await call<{
+    results: { tree: string }[];
+    nextCursor: string | null;
+  }>("memory.search", {
     tree: "share.scope",
   });
   expect(res.results.length).toBe(1);
   expect(res.results[0]?.tree).toBe("/share/scope/a");
+  expect(res.nextCursor).toBeNull();
+});
+
+test("search: filter-only pages by cursor in asc and desc order and rejects cursor with fulltext/semantic", async () => {
+  const ids = [
+    "01941000-0000-7000-8000-00000000d001",
+    "01941000-0000-7000-8000-00000000d002",
+    "01941000-0000-7000-8000-00000000d003",
+  ] as const;
+  await call("memory.batchCreate", {
+    memories: ids.map((id, i) => ({
+      id,
+      content: `page-${i + 1}`,
+      tree: "share.cursorpage",
+    })),
+  });
+
+  type SearchPage = {
+    results: { id: string; content: string }[];
+    total: number;
+    limit: number;
+    nextCursor: string | null;
+  };
+
+  // Asc paging: 2 then 1.
+  const asc1 = await call<SearchPage>("memory.search", {
+    tree: "share.cursorpage",
+    orderBy: "asc",
+    limit: 2,
+  });
+  expect(asc1.results.map((r) => r.id)).toEqual([ids[0], ids[1]]);
+  expect(asc1.nextCursor).toBe(ids[1]);
+
+  const asc2 = await call<SearchPage>("memory.search", {
+    tree: "share.cursorpage",
+    orderBy: "asc",
+    limit: 2,
+    cursor: asc1.nextCursor,
+  });
+  expect(asc2.results.map((r) => r.id)).toEqual([ids[2]]);
+  expect(asc2.nextCursor).toBeNull();
+
+  // Desc paging (default order): 2 then 1.
+  const desc1 = await call<SearchPage>("memory.search", {
+    tree: "share.cursorpage",
+    limit: 2,
+  });
+  expect(desc1.results.map((r) => r.id)).toEqual([ids[2], ids[1]]);
+  expect(desc1.nextCursor).toBe(ids[1]);
+
+  const desc2 = await call<SearchPage>("memory.search", {
+    tree: "share.cursorpage",
+    limit: 2,
+    cursor: desc1.nextCursor,
+  });
+  expect(desc2.results.map((r) => r.id)).toEqual([ids[0]]);
+  expect(desc2.nextCursor).toBeNull();
+
+  // Ranked search never returns a nextCursor, even when the page is full.
+  const ranked = await call<SearchPage>("memory.search", {
+    tree: "share.cursorpage",
+    fulltext: "page",
+    limit: 1,
+  });
+  expect(ranked.results).toHaveLength(1);
+  expect(ranked.nextCursor).toBeNull();
+
+  // Combining cursor with fulltext or semantic is a VALIDATION_ERROR.
+  await expectAppError(
+    call("memory.search", { fulltext: "page", cursor: ids[0] }),
+    "VALIDATION_ERROR",
+  );
+  await expectAppError(
+    call("memory.search", { semantic: "page", cursor: ids[0] }),
+    "VALIDATION_ERROR",
+  );
+  // grep + cursor without a real filter is still rejected (no full table scan).
+  await expectAppError(
+    call("memory.search", { grep: "page", cursor: ids[0] }),
+    "VALIDATION_ERROR",
+  );
 });
 
 test("search: temporal before/after are strict at the cutoff", async () => {
