@@ -266,8 +266,16 @@ export async function searchAllPages<
       ...(cursor !== undefined ? { cursor } : {}),
     });
     all.push(...page.results);
-    if (!page.nextCursor || page.results.length < pageLimit) {
+    if (page.results.length < pageLimit) {
       break;
+    }
+    if (maxResults !== undefined && all.length >= maxResults) {
+      break;
+    }
+    if (!page.nextCursor) {
+      throw new Error(
+        `Server returned a full page of ${pageLimit} results without nextCursor. Upgrade the server to support paginated search beyond ${SEARCH_PAGE_LIMIT} memories.`,
+      );
     }
     cursor = page.nextCursor;
   }
