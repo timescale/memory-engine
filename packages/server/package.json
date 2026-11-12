@@ -1,6 +1,6 @@
 {
   "name": "memory-engine-server",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "dependencies": {
     "@better-auth/oauth-provider": "1.7.14",
     "@memory.build/database": "workspace:*",
