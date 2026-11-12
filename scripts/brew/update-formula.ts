@@ -3,12 +3,14 @@
 // Generates and publishes the Homebrew formula for the me CLI.
 //
 // Computes SHA256 hashes of the release binaries, generates the me.rb formula,
-// then clones timescale/homebrew-tap and pushes the updated formula.
+// then clones timescale/homebrew-tap, pushes the updated formula to a branch
+// and opens a pull request into main.
 //
 // Usage:
 //   ./bun scripts/brew/update-formula.ts --version 0.13.0 --binaries-dir ./binaries [--dry-run]
 //
-// Requires HOMEBREW_TAP_GITHUB_TOKEN env var for pushing to the tap repo.
+// Requires HOMEBREW_TAP_GITHUB_TOKEN env var for pushing to the tap repo and
+// opening the pull request.
 
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -16,6 +18,7 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 const TAP_REPO = "timescale/homebrew-tap";
+const TAP_BASE_BRANCH = "main";
 const FORMULA_FILE = "me.rb";
 
 interface PlatformTarget {
@@ -65,9 +68,30 @@ async function run(
   const stdout = await new Response(childProcess.stdout).text();
   const stderr = await new Response(childProcess.stderr).text();
   if (exitCode !== 0) {
-    fail(`Command failed (exit ${exitCode}): ${command.join(" ")}\n${stderr}`);
+    fail(
+      redact(
+        `Command failed (exit ${exitCode}): ${command.join(" ")}\n${stderr}`,
+      ),
+    );
   }
   return { stdout: stdout.trim(), stderr: stderr.trim() };
+}
+
+// The clone URL contains the token, and git can print it in errors.
+function redact(text: string): string {
+  return token ? text.replaceAll(token, "***") : text;
+}
+
+function tapApi(method: string, path: string, body?: unknown) {
+  return fetch(`https://api.github.com/repos/${TAP_REPO}${path}`, {
+    method,
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: `Bearer ${token}`,
+      "X-GitHub-Api-Version": "2022-11-28",
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
 }
 
 function generateFormula(version: string, hashes: Map<string, string>): string {
@@ -210,7 +234,41 @@ if (!diff) {
   process.exit(0);
 }
 
+// The tap's main branch accepts changes only through a reviewed pull request.
+const branch = `me-${version}`;
+await run(["git", "switch", "-c", branch], { cwd: tmpDir });
 await run(["git", "commit", "-m", `me ${version}`], { cwd: tmpDir });
-await run(["git", "push"], { cwd: tmpDir });
+// Force the push so that a re-run for the same version replaces the branch.
+await run(["git", "push", "--force", "origin", branch], { cwd: tmpDir });
 
-console.log(`Successfully updated ${TAP_REPO}/${FORMULA_FILE} to ${version}.`);
+const created = await tapApi("POST", "/pulls", {
+  title: `me ${version}`,
+  head: branch,
+  base: TAP_BASE_BRANCH,
+  body: `Update the me formula to ${version}.\n\nOpened by the memory-engine release workflow.`,
+});
+let pullRequestUrl: string | undefined;
+if (created.status === 201) {
+  pullRequestUrl = ((await created.json()) as { html_url: string }).html_url;
+} else if (created.status === 422) {
+  // GitHub returns 422 when an open pull request for the branch exists.
+  const owner = TAP_REPO.split("/")[0];
+  const found = await tapApi(
+    "GET",
+    `/pulls?state=open&base=${TAP_BASE_BRANCH}&head=${owner}:${branch}`,
+  );
+  if (found.ok) {
+    const pulls = (await found.json()) as { html_url: string }[];
+    pullRequestUrl = pulls[0]?.html_url;
+  }
+  if (pullRequestUrl) {
+    console.log(`A pull request for ${branch} is already open.`);
+  }
+}
+if (!pullRequestUrl) {
+  fail(
+    `Could not open pull request (HTTP ${created.status}): ${await created.text()}`,
+  );
+}
+
+console.log(`Pull request for me ${version}: ${pullRequestUrl}`);
