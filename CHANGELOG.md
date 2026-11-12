@@ -4,6 +4,53 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.9.3 (client) / 0.9.7 (server)
+
+Server `server/v0.9.7` · Client `v0.9.3`.
+
+### Added
+- **Keyset pagination for filter-only `memory.search`.** Filter-only searches
+  accept an optional `cursor` (UUIDv7 memory ID) and return `nextCursor` when a
+  page is full (`results.length === limit`). Combining `cursor` with `semantic`
+  or `fulltext` is rejected with `VALIDATION_ERROR`.
+- `me memory search` adds `--cursor <id>` and prints `more: --cursor <nextCursor>`
+  in text output when additional pages are available. `me_memory_search` exposes
+  `cursor` and returns `nextCursor`.
+
+### Fixed
+- **`me memory export`, `me_memory_export`, `me pack install`, and `me pack list`
+  page past 200 memories.** Exports now default to returning all matching
+  memories across pages (`--limit all` or omitted in the CLI; `limit` omitted,
+  `null`, or `0` in MCP), while still honoring an explicit positive limit across
+  pages. If a pre-pagination server returns a full 200-row page without
+  `nextCursor` when more results are needed, the CLI/MCP client fails with an
+  explicit server-upgrade error instead of silently truncating.
+
+### Compatibility and database
+- Space idempotent migration `002_search.sql` adds `_cursor uuid default null` to
+  `search_memory` and advances `SPACE_SCHEMA_VERSION` to `0.0.10`.
+- `MIN_CLIENT_VERSION` (`0.9.0`) and `MIN_SERVER_VERSION` (`0.8.0`) are
+  unchanged.
+
+## 0.9.6 (server)
+
+Server `server/v0.9.6` · Client unchanged (`v0.9.2`).
+
+### Added
+- **Reversible principal suspension.** Operators can suspend or restore users and
+  service accounts via `core.set_principal_suspended(_id, _suspended, _auth_schema)`
+  without deleting memberships, grants, API keys, or memories. Suspended
+  principals are rejected with HTTP `403` (`PRINCIPAL_SUSPENDED`) on RPC
+  endpoints and `ACCOUNT_SUSPENDED` on browser sign-in, and active OAuth/session
+  tokens are scrubbed on suspension.
+- **Public-hosting wind-down banner.** External accounts on the public hosted
+  deployment see an export notice banner in the web UI.
+
+### Compatibility and database
+- Core incremental migration `019_principal_suspension.sql` adds `suspended_at`
+  to `core.principal` and advances `CORE_SCHEMA_VERSION` to `0.0.8`.
+- No client release or compatibility-minimum changes.
+
 ## 0.9.5 (server)
 
 Server `server/v0.9.5` · Client unchanged (`v0.9.2`).
