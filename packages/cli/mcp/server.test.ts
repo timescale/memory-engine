@@ -1114,6 +1114,14 @@ test("me_memory_export pages past 200 memories via nextCursor", async () => {
       { limit: 200, orderBy: "asc" },
       { limit: 200, orderBy: "asc", cursor: makeId(200) },
     ]);
+
+    searchParamsSeen.length = 0;
+    const negative = await client.callTool({
+      name: "me_memory_export",
+      arguments: { format: "json", limit: -1 },
+    });
+    expect(negative.isError).toBe(true);
+    expect(searchParamsSeen).toEqual([]);
   } finally {
     await Promise.all([client.close(), server.close()]);
   }
