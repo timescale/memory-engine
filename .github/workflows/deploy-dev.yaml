@@ -32,10 +32,11 @@ permissions:
 
 jobs:
   resolve:
-    runs-on: ubuntu-latest
+    runs-on: runs-on/fleet=linux-2cpu-x64/env=ue1
     outputs:
       sha: ${{ steps.resolve.outputs.sha }}
     steps:
+      - uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2.6.0
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -59,9 +60,10 @@ jobs:
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
   build:
-    runs-on: ubuntu-latest
+    runs-on: runs-on/fleet=linux-2cpu/env=ue1
     needs: resolve
     steps:
+      - uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2.6.0
       - name: Dispatch Build
         uses: timescale/workflow-dispatch-action@main
         with:
@@ -80,9 +82,10 @@ jobs:
             }
 
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: runs-on/fleet=linux-2cpu/env=ue1
     needs: [resolve, build]
     steps:
+      - uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2.6.0
       - name: Dispatch Deploy - dev
         uses: timescale/workflow-dispatch-action@main
         with:

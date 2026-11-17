@@ -12,7 +12,8 @@ permissions:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    # PRs from forks stay on GitHub-hosted runners so outside code never runs in the CI account.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'runs-on/fleet=linux-2cpu-x64/env=ue1' }}
     env:
       # TEST_CI disables conditional test skips: every gated suite runs, and
       # missing prerequisites fail loudly instead of skipping silently. The
@@ -23,6 +24,8 @@ jobs:
       TEST_CI: "1"
 
     steps:
+      - uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2.6.0
+        if: ${{ !github.event.pull_request.head.repo.fork }}
       - uses: actions/checkout@v6
       - name: Install dependencies
         run: ./bun install
@@ -43,7 +46,8 @@ jobs:
         run: ./bun run test:unit
 
   integration:
-    runs-on: ubuntu-latest
+    # PRs from forks stay on GitHub-hosted runners so outside code never runs in the CI account.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'runs-on/fleet=linux-2cpu-x64/env=ue1' }}
     env:
       # See the ci job for TEST_CI semantics. The e2e suite needs the database
       # URL (the container below); its embedding worker talks to a local fake
@@ -52,6 +56,8 @@ jobs:
       TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
 
     steps:
+      - uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2.6.0
+        if: ${{ !github.event.pull_request.head.repo.fork }}
       - uses: actions/checkout@v6
       - name: Install dependencies
         run: ./bun install
@@ -90,8 +96,11 @@ jobs:
     # COPY of a retired package — passes CI and only fails at deploy time. This
     # job is that guard: it builds the image (no push) so the Dockerfile breaks
     # here instead. Mirrors the build the deploy dispatches to tiger-agents-deploy.
-    runs-on: ubuntu-latest
+    # PRs from forks stay on GitHub-hosted runners so outside code never runs in the CI account.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'runs-on/fleet=linux-2cpu-x64/env=ue1' }}
     steps:
+      - uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2.6.0
+        if: ${{ !github.event.pull_request.head.repo.fork }}
       - uses: actions/checkout@v6
       - name: Build server image (no push)
         run: docker build -f packages/server/Dockerfile -t me-server:ci .
@@ -102,8 +111,11 @@ jobs:
     # list + tsc) only ran on a release tag, so a stale entry — e.g. a renamed or
     # deleted module still listed in protocol's build:js — passed every PR and
     # only broke mid-release. This job is that guard: the build fails here instead.
-    runs-on: ubuntu-latest
+    # PRs from forks stay on GitHub-hosted runners so outside code never runs in the CI account.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'runs-on/fleet=linux-2cpu-x64/env=ue1' }}
     steps:
+      - uses: runs-on/action@284bff869d4a825f778ac7c38e50f1e31ef198fd # v2.6.0
+        if: ${{ !github.event.pull_request.head.repo.fork }}
       - uses: actions/checkout@v6
       - name: Install dependencies
         run: ./bun install
