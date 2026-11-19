@@ -12,12 +12,6 @@ curl -fsSL https://install.memory.build | sh
 
 Alternative install methods:
 
-### Homebrew
-
-```bash
-brew install timescale/tap/me
-```
-
 ### NPM
 
 ```bash

@@ -122,8 +122,7 @@ export function detectInstalledTools(): McpTool[] {
  *   - **Headless agent (`--api-key`):** the global key is baked in; it can be
  *     multi-space or explicitly pinned with `--space`.
  *
- * Always uses bare `me` — the binary is expected to be on PATH whether installed
- * via the install script, Homebrew, or npm.
+ * Use bare `me`. The binary must be on PATH.
  */
 export function buildMeCommand(opts: {
   server?: string;

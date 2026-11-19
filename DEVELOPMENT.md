@@ -424,7 +424,6 @@ The `v*` tag triggers `.github/workflows/release.yml`, which:
 - Builds the `me` CLI for all platforms.
 - Creates a GitHub Release with the binaries.
 - Publishes the CLI wrapper to npm.
-- Updates the Homebrew formula.
 
 It also triggers `.github/workflows/docs.yml`, which rebuilds and
 publishes the docs site from the tag's commit (see [Docs deployment](#docs-deployment)).
