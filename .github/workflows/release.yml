@@ -6,11 +6,10 @@ on:
       - "v*"
 
 jobs:
-  publish-npm:
+  prepare-npm:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
 
     steps:
       - uses: actions/checkout@v6
@@ -40,20 +39,6 @@ jobs:
       - name: Build @memory.build/client
         run: ./bun run --filter '@memory.build/client' build
 
-      # OIDC trusted publishing requires npm >= 11.5.1 and generates provenance,
-      # whose libnpmpublish/provenance.js does `require('sigstore')`. npm 12.0.0
-      # regressed: it no longer hoists the unscoped `sigstore` module to npm's
-      # top-level node_modules (it's buried under pacote), so publish dies with
-      # "Cannot find module 'sigstore'". Pin the 11.x line, which bundles a
-      # top-level sigstore and satisfies the >=11.5.1 OIDC requirement.
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Install npm 11.x (OIDC trusted publishing; 12.0.0 breaks provenance)
-        run: npm install -g 'npm@^11.5.1'
-
       # Pack with bun, publish the tarball with npm.
       #
       # `npm publish` from inside a package dir does NOT rewrite
@@ -81,10 +66,71 @@ jobs:
       - name: Verify no unresolved workspace specs survived packing
         run: ./bun scripts/npm/verify-tarballs.ts ./npm-tarballs
 
-      # The `./` prefix is required: npm reads a bare relative path as a GitHub
-      # `org/repo` shorthand and tries to `git ls-remote` it.
+      - name: Check npm tarballs match the release tag
+        run: |
+          test -f "npm-tarballs/memory.build-protocol-${GITHUB_REF_NAME#v}.tgz"
+          test -f "npm-tarballs/memory.build-client-${GITHUB_REF_NAME#v}.tgz"
+
+      - name: Upload npm tarballs
+        uses: actions/upload-artifact@v7
+        with:
+          name: npm-tarballs
+          path: npm-tarballs/*.tgz
+          if-no-files-found: error
+
+  publish-protocol:
+    environment: release
+    runs-on: ubuntu-latest
+    needs: [prepare-npm, build-cli]
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download npm tarballs
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-tarballs
+          path: ./npm-tarballs
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install npm 11.x (OIDC trusted publishing; 12.0.0 breaks provenance)
+        run: npm install -g 'npm@^11.5.1'
+
+      # Use ./ so npm treats the tarball as a file, not a GitHub repository.
       - name: Publish @memory.build/protocol
         run: npm publish --access public "./npm-tarballs/memory.build-protocol-${GITHUB_REF_NAME#v}.tgz"
+
+  publish-client:
+    environment: release
+    runs-on: ubuntu-latest
+    needs: [prepare-npm, build-cli, publish-protocol]
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download npm tarballs
+        uses: actions/download-artifact@v8
+        with:
+          name: npm-tarballs
+          path: ./npm-tarballs
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install npm 11.x (OIDC trusted publishing; 12.0.0 breaks provenance)
+        run: npm install -g 'npm@^11.5.1'
 
       - name: Publish @memory.build/client
         run: npm publish --access public "./npm-tarballs/memory.build-client-${GITHUB_REF_NAME#v}.tgz"
@@ -119,8 +165,9 @@ jobs:
           path: dist/me-*
 
   release-cli:
+    environment: release
     runs-on: ubuntu-latest
-    needs: [build-cli, publish-npm]
+    needs: [prepare-npm, build-cli]
     permissions:
       contents: write
 
@@ -143,8 +190,9 @@ jobs:
           generate_release_notes: true
 
   publish-cli-npm:
+    environment: release
     runs-on: ubuntu-latest
-    needs: [build-cli, publish-npm]
+    needs: [prepare-npm, build-cli]
     permissions:
       contents: read
       id-token: write
@@ -175,33 +223,5 @@ jobs:
       - name: Publish to npm
         run: |
           ./bun run scripts/npm/publish.ts \
-            --version "${GITHUB_REF_NAME#v}" \
-            --binaries-dir ./dist
-
-  publish-homebrew:
-    runs-on: ubuntu-latest
-    needs:
-      - build-cli
-      - release-cli
-    permissions:
-      contents: read
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Download CLI artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: me-binaries
-          path: ./dist
-
-      - name: List artifacts
-        run: ls -la ./dist
-
-      - name: Update Homebrew formula
-        env:
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-        run: |
-          ./bun run scripts/brew/update-formula.ts \
             --version "${GITHUB_REF_NAME#v}" \
             --binaries-dir ./dist

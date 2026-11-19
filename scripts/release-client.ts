@@ -3,8 +3,7 @@
 // Bumps the root package.json plus the three client-facing packages that
 // get published to npm (@memory.build/cli, @memory.build/client,
 // @memory.build/protocol). Pushing the `v<version>` tag triggers
-// `.github/workflows/release.yml` (npm publish, CLI binaries, GitHub Release,
-// Homebrew formula update).
+// `.github/workflows/release.yml` (npm publish, CLI binaries, GitHub Release).
 //
 // Does NOT deploy the server. For that, use `./bun run release:server`
 // (which tags `server/v<version>` and triggers the prod deploy workflow).
