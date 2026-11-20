@@ -4,6 +4,18 @@ All notable changes to the memory engine are documented here. The client
 (`v<x.y.z>`) and server (`server/v<x.y.z>`) release independently but are
 versioned in lockstep for coordinated breaking changes.
 
+## 0.9.4 (client)
+
+Client `v0.9.4` · Server unchanged (`server/v0.9.7`).
+
+### Changed
+- **Homebrew releases are discontinued.** The `timescale/tap/me` formula no
+  longer receives updates. Uninstall the Homebrew package and install the CLI
+  with `curl -fsSL https://install.memory.build | sh` or `npm i -g @memory.build/cli`.
+
+### Compatibility and database
+- No server release, compatibility-minimum changes, or new schema migrations.
+
 ## 0.9.3 (client) / 0.9.7 (server)
 
 Server `server/v0.9.7` · Client `v0.9.3`.
